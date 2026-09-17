@@ -1,0 +1,39 @@
+# macOS
+.DS_Store
+
+# Xcode build output
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode user-specific data
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Code coverage and test output
+*.xcresult
+*.profraw
+
+# Signing credentials and provisioning profiles
+*.mobileprovision
+*.p12
+*.cer
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+/AGENTS.md
+/CLAUDE.md

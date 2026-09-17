@@ -9,9 +9,11 @@ import SwiftUI
 
 @main
 struct CentraliaApp: App {
+    @State private var container = DependencyContainer.mock()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(container: container)
         }
     }
 }

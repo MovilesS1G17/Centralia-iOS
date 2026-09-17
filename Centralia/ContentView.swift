@@ -8,17 +8,37 @@
 import SwiftUI
 
 struct ContentView: View {
+    let container: DependencyContainer
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        Group {
+            switch container.session.phase {
+            case .unauthenticated(.signUp):
+                SignUpView(
+                    repository: container.authenticationRepository,
+                    showLogIn: container.session.showLogIn,
+                    completeAuthentication: container.session.completeAuthentication
+                )
+
+            case .unauthenticated(.logIn):
+                LogInView(
+                    repository: container.authenticationRepository,
+                    showSignUp: container.session.showSignUp,
+                    completeAuthentication: container.session.completeAuthentication
+                )
+
+            case let .authenticated(user):
+                AuthenticatedPlaceholderView(user: user)
+            }
         }
-        .padding()
+        .animation(.easeInOut(duration: 0.2), value: container.session.phase)
     }
 }
 
 #Preview {
-    ContentView()
+    ContentView(
+        container: DependencyContainer(
+            authenticationRepository: MockAuthenticationRepository(delay: .zero)
+        )
+    )
 }

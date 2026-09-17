@@ -1,3 +1,3 @@
-# Centralia-Swift
+# Centralia iOS
 
-This repository contains the frontend implementation of Centralia-Swift, a native iOS application built with Swift for the **ISIS3510 Mobile Apps Development** course at _Universidad de Los Andes_.
+Native SwiftUI frontend for Centralia, built for the **ISIS3510 Mobile Apps Development** course at _Universidad de los Andes_. Centralia organizes short-form videos saved from TikTok, Instagram Reels, and YouTube Shorts.
