@@ -35,6 +35,15 @@ enum CentraliaTheme {
             )
         }
 
+        static var sectionTitle: Font {
+            availableCustomFont(
+                named: "InstrumentSerif-Regular",
+                size: 24,
+                relativeTo: .title2,
+                fallback: .system(.title2, design: .serif)
+            )
+        }
+
         private static func availableCustomFont(
             named name: String,
             size: CGFloat,
@@ -57,6 +66,10 @@ extension Color {
     static let centraliaSoftSurface = Color("SoftSurface")
     static let centraliaDivider = Color("Divider")
     static let centraliaSecondaryText = Color("SecondaryText")
+    static let centraliaVideoSand = Color("VideoSand")
+    static let centraliaVideoMint = Color("VideoMint")
+    static let centraliaVideoClay = Color("VideoClay")
+    static let centraliaVideoLavender = Color("VideoLavender")
 }
 
 struct CentraliaPressStyle: ButtonStyle {

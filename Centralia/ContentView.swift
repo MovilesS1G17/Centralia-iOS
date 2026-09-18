@@ -28,7 +28,11 @@ struct ContentView: View {
                 )
 
             case let .authenticated(user):
-                AuthenticatedPlaceholderView(user: user)
+                AuthenticatedAppView(
+                    user: user,
+                    videoRepository: container.videoItemRepository,
+                    folderRepository: container.folderRepository
+                )
             }
         }
         .animation(.easeInOut(duration: 0.2), value: container.session.phase)
@@ -36,9 +40,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(
-        container: DependencyContainer(
-            authenticationRepository: MockAuthenticationRepository(delay: .zero)
-        )
-    )
+    ContentView(container: .mock())
 }

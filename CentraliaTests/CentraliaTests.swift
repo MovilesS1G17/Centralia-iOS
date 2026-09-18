@@ -79,4 +79,76 @@ struct CentraliaTests {
 
         #expect(first.id == second.id)
     }
+
+    @Test func libraryFiltersVideosBySource() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "library-filter-test.json"
+        )
+        let viewModel = LibraryViewModel(
+            videoRepository: repository,
+            folderRepository: repository
+        )
+
+        await viewModel.load()
+        #expect(viewModel.videos.count == 6)
+        #expect(viewModel.filteredVideos.count == 6)
+
+        viewModel.selectedFilter = .platform(.instagramReel)
+
+        #expect(viewModel.filteredVideos.count == 2)
+        #expect(viewModel.filteredVideos.allSatisfy { $0.platform == .instagramReel })
+    }
+
+    @Test func libraryMutationsPersistAcrossRepositoryInstances() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let filename = "library-persistence-test.json"
+        let repository = MockLibraryRepository(store: store, filename: filename)
+        let originalVideos = try await repository.videos()
+        let folders = try await repository.folders()
+
+        #expect(originalVideos.count == 6)
+        #expect(folders.isEmpty == false)
+
+        guard let video = originalVideos.first, let destination = folders.first else {
+            return
+        }
+
+        try await repository.moveVideo(id: video.id, to: destination.id)
+
+        let reloadedRepository = MockLibraryRepository(store: store, filename: filename)
+        let movedVideo = try await reloadedRepository.videos().first { $0.id == video.id }
+        #expect(movedVideo?.folderID == destination.id)
+
+        try await reloadedRepository.deleteVideo(id: video.id)
+        #expect(try await reloadedRepository.videos().contains { $0.id == video.id } == false)
+
+        try await reloadedRepository.restoreVideo(video)
+        #expect(try await reloadedRepository.videos().contains { $0.id == video.id })
+    }
+
+    @Test func videoTitleUsesTheBestAvailableSource() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "library-title-test.json"
+        )
+        var video = try await repository.videos()[0]
+
+        #expect(video.displayTitle == video.generatedSummary)
+
+        video.customTitle = "My saved title"
+        #expect(video.displayTitle == "My saved title")
+    }
 }

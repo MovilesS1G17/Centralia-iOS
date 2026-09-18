@@ -34,6 +34,28 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testLibraryLoadsAndFiltersSavedShorts() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+
+        XCTAssertTrue(app.staticTexts["Search your library"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Tiny studio ideas"].exists)
+        XCTAssertTrue(app.staticTexts["Three color rules"].exists)
+
+        let libraryScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        libraryScreenshot.name = "Screen 3 - Library"
+        libraryScreenshot.lifetime = .keepAlways
+        add(libraryScreenshot)
+
+        app.buttons["Reels"].tap()
+
+        XCTAssertTrue(app.staticTexts["Three color rules"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["Tiny studio ideas"].exists)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
