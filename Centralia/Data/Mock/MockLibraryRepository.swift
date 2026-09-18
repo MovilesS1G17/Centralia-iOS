@@ -40,22 +40,39 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
     }
 
     func createFolder(named name: String) async throws -> LibraryFolder {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            throw FolderRepositoryError.emptyName
-        }
-
         var value = try await snapshot()
-        guard !value.folders.contains(where: {
-            $0.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame
-        }) else {
-            throw FolderRepositoryError.duplicateName
-        }
+        let trimmedName = try validatedFolderName(name, excluding: nil, from: value.folders)
 
         let folder = LibraryFolder(id: UUID(), name: trimmedName, symbolName: "folder")
         value.folders.append(folder)
         try await store.save(value, to: filename)
         return folder
+    }
+
+    func renameFolder(id: UUID, to name: String) async throws -> LibraryFolder {
+        var value = try await snapshot()
+        guard let index = value.folders.firstIndex(where: { $0.id == id }) else {
+            throw FolderRepositoryError.folderNotFound
+        }
+
+        let trimmedName = try validatedFolderName(name, excluding: id, from: value.folders)
+        value.folders[index].name = trimmedName
+        let folder = value.folders[index]
+        try await store.save(value, to: filename)
+        return folder
+    }
+
+    func deleteFolder(id: UUID) async throws {
+        var value = try await snapshot()
+        guard value.folders.contains(where: { $0.id == id }) else {
+            throw FolderRepositoryError.folderNotFound
+        }
+
+        value.folders.removeAll { $0.id == id }
+        for index in value.videos.indices where value.videos[index].folderID == id {
+            value.videos[index].folderID = nil
+        }
+        try await store.save(value, to: filename)
     }
 
     func deleteVideo(id: UUID) async throws {
@@ -119,6 +136,26 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
 
     private func snapshot() async throws -> Snapshot {
         try await store.load(Snapshot.self, from: filename, seed: Self.seed)
+    }
+
+    private func validatedFolderName(
+        _ name: String,
+        excluding excludedID: UUID?,
+        from folders: [LibraryFolder]
+    ) throws -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw FolderRepositoryError.emptyName
+        }
+
+        guard !folders.contains(where: {
+            $0.id != excludedID
+                && $0.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame
+        }) else {
+            throw FolderRepositoryError.duplicateName
+        }
+
+        return trimmedName
     }
 
     private static let seed: Snapshot = {

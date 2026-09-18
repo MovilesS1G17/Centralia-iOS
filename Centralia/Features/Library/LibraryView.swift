@@ -257,11 +257,15 @@ struct LibraryView: View {
             )
 
         case let .folder(folder):
-            UpcomingFeatureView(
-                title: folder.name,
-                screenNumber: 9,
-                systemImage: folder.symbolName,
-                detail: "Folder Detail will be implemented in Screen 9."
+            FolderDetailView(
+                folder: folder,
+                videoRepository: videoRepository,
+                folderRepository: folderRepository,
+                folderChanged: {
+                    Task {
+                        await viewModel.retry()
+                    }
+                }
             )
         }
     }

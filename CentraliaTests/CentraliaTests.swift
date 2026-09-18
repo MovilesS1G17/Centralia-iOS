@@ -452,4 +452,63 @@ struct CentraliaTests {
         )
         #expect(reloadedVideo.note == "Review this during the next sprint.")
     }
+
+    @Test func foldersCanBeRenamedAndDeletedWithoutDeletingTheirShorts() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let repository = MockLibraryRepository(store: store, filename: "folder-crud-test.json")
+        let folder = try #require(try await repository.folders().first)
+        let savedInFolder = try #require(
+            try await repository.videos().first { $0.folderID == folder.id }
+        )
+
+        let renamed = try await repository.renameFolder(id: folder.id, to: "Ideas")
+        #expect(renamed.name == "Ideas")
+        #expect(try await repository.folders().contains(renamed))
+
+        try await repository.deleteFolder(id: folder.id)
+
+        #expect(try await repository.folders().contains { $0.id == folder.id } == false)
+        #expect(
+            try await repository.videos().first { $0.id == savedInFolder.id }?.folderID == nil
+        )
+    }
+
+    @Test func folderDetailScopesSearchFiltersAndSortToTheCurrentFolder() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "folder-detail-filter-test.json"
+        )
+        let folder = try #require(
+            try await repository.folders().first { $0.name == "Design" }
+        )
+        let viewModel = FolderDetailViewModel(
+            folder: folder,
+            videoRepository: repository,
+            folderRepository: repository
+        )
+
+        await viewModel.load()
+        #expect(viewModel.videos.count == 2)
+
+        viewModel.query = "ceramics"
+        #expect(viewModel.filteredVideos.map(\.displayTitle) == ["Centering clay on the wheel"])
+
+        viewModel.query = ""
+        viewModel.selectedSourceFilter = .platform(.instagramReel)
+        #expect(viewModel.filteredVideos.count == 2)
+
+        viewModel.sort = .title
+        #expect(viewModel.filteredVideos.map(\.displayTitle) == [
+            "Centering clay on the wheel",
+            "Three color rules"
+        ])
+    }
 }

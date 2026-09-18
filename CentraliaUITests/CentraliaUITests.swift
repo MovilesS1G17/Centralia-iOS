@@ -207,6 +207,38 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testFoldersCreatesAndOpensAFolderDetail() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        app.tabBars.buttons["Folders"].tap()
+        XCTAssertTrue(app.staticTexts["Folders"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["unorganizedCollection"].exists)
+
+        let folderName = "UI Folder \(UUID().uuidString.prefix(5))"
+        app.buttons["newFolderButton"].tap()
+        let folderField = app.textFields["newFolderNameField"]
+        XCTAssertTrue(folderField.waitForExistence(timeout: 2))
+        folderField.tap()
+        folderField.typeText(folderName)
+        app.buttons["saveNewFolderButton"].tap()
+
+        let newFolder = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", folderName)
+        ).firstMatch
+        XCTAssertTrue(newFolder.waitForExistence(timeout: 3))
+        newFolder.tap()
+        XCTAssertTrue(app.textFields["folderDetailSearchField"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["folderDetailFilters"].exists)
+
+        let foldersScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        foldersScreenshot.name = "Screens 8 and 9 - Folders and Folder Detail"
+        foldersScreenshot.lifetime = .keepAlways
+        add(foldersScreenshot)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()

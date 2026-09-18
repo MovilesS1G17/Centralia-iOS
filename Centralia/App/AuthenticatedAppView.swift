@@ -38,13 +38,12 @@ struct AuthenticatedAppView: View {
             }
 
             Tab("Folders", systemImage: "folder", value: AppTab.folders) {
-                NavigationStack {
-                    UpcomingFeatureView(
-                        title: "Folders",
-                        screenNumber: 8,
-                        systemImage: "folder"
-                    )
-                }
+                FoldersView(
+                    videoRepository: videoRepository,
+                    folderRepository: folderRepository,
+                    selectedTab: $selectedTab
+                )
+                .id(libraryRevision)
             }
 
             Tab("Profile", systemImage: "person", value: AppTab.profile) {
