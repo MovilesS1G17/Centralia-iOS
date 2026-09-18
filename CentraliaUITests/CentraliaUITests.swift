@@ -160,6 +160,53 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testVideoDetailEditsTagsAndChangesFolderState() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        let videoMetadata = app.buttons["Tiny studio ideas, @roomreset"]
+        XCTAssertTrue(videoMetadata.waitForExistence(timeout: 3))
+        videoMetadata.tap()
+
+        XCTAssertTrue(app.staticTexts["videoDetailTitle"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.staticTexts["videoDetailTitle"].label, "Tiny studio ideas")
+
+        let tag = app.buttons["videoDetailTag_studio"]
+        XCTAssertTrue(tag.exists)
+        tag.tap()
+        XCTAssertTrue(app.navigationBars["Edit Tags"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["studio"].exists)
+
+        let newTagField = app.textFields["videoDetailNewTagField"]
+        newTagField.tap()
+        newTagField.typeText("detail-test")
+        app.buttons["Add"].tap()
+        app.buttons["videoDetailSaveTags"].tap()
+        XCTAssertTrue(app.buttons["videoDetailTag_detail-test"].waitForExistence(timeout: 3))
+
+        let folderAction = app.buttons["videoDetailFolderAction"]
+        XCTAssertTrue(folderAction.exists)
+
+        if folderAction.label == "Change Folder" {
+            folderAction.tap()
+            XCTAssertTrue(app.navigationBars["Move Video"].waitForExistence(timeout: 2))
+            app.buttons["Unorganized"].tap()
+            XCTAssertTrue(app.buttons["Choose Folder"].waitForExistence(timeout: 3))
+        } else {
+            folderAction.tap()
+            XCTAssertTrue(app.navigationBars["Move Video"].waitForExistence(timeout: 2))
+            app.buttons["Spaces"].tap()
+            XCTAssertTrue(app.buttons["Change Folder"].waitForExistence(timeout: 3))
+        }
+
+        let detailScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        detailScreenshot.name = "Screen 7 - Video Detail"
+        detailScreenshot.lifetime = .keepAlways
+        add(detailScreenshot)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()

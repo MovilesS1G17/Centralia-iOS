@@ -44,4 +44,9 @@ final class SaveConfirmationViewModel {
     func dismissFailure() {
         failureMessage = nil
     }
+
+    func replaceVideo(_ updatedVideo: VideoItem) {
+        guard updatedVideo.id == video.id else { return }
+        video = updatedVideo
+    }
 }

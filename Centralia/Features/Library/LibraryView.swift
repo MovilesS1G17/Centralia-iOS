@@ -14,6 +14,8 @@ struct LibraryView: View {
     @State private var movingVideo: VideoItem?
 
     private let presentSave: () -> Void
+    private let videoRepository: any VideoItemRepository
+    private let folderRepository: any FolderRepository
 
     init(
         videoRepository: any VideoItemRepository,
@@ -28,6 +30,8 @@ struct LibraryView: View {
             )
         )
         _selectedTab = selectedTab
+        self.videoRepository = videoRepository
+        self.folderRepository = folderRepository
         self.presentSave = presentSave
     }
 
@@ -240,11 +244,16 @@ struct LibraryView: View {
     private func destination(for route: Route) -> some View {
         switch route {
         case let .video(video):
-            UpcomingFeatureView(
-                title: video.displayTitle,
-                screenNumber: 7,
-                systemImage: "play.rectangle",
-                detail: "Video Detail will be implemented in Screen 7."
+            VideoDetailView(
+                video: video,
+                videoRepository: videoRepository,
+                folderRepository: folderRepository,
+                videoChanged: { updatedVideo in
+                    viewModel.apply(updatedVideo)
+                },
+                videoDeleted: { deletedVideo in
+                    viewModel.registerDeleted(deletedVideo)
+                }
             )
 
         case let .folder(folder):

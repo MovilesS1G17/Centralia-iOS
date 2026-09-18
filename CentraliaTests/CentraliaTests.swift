@@ -135,6 +135,40 @@ struct CentraliaTests {
         #expect(try await reloadedRepository.videos().contains { $0.id == video.id })
     }
 
+    @Test func videoDetailPersistsFolderAndTagChanges() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let filename = "video-detail-persistence-test.json"
+        let repository = MockLibraryRepository(store: store, filename: filename)
+        let video = try #require(try await repository.videos().first)
+        let viewModel = VideoDetailViewModel(
+            video: video,
+            videoRepository: repository,
+            folderRepository: repository
+        )
+
+        await viewModel.load()
+        #expect(viewModel.folderActionTitle == "Change Folder")
+        #expect(viewModel.folderName != nil)
+
+        #expect(await viewModel.move(to: nil))
+        #expect(viewModel.folderActionTitle == "Choose Folder")
+        #expect(viewModel.folderName == nil)
+
+        #expect(await viewModel.updateTags(["Swift", "Animation", "swift", "  "]))
+        #expect(viewModel.video.tags == ["Swift", "Animation"])
+
+        let reloadedRepository = MockLibraryRepository(store: store, filename: filename)
+        let persistedVideo = try #require(
+            try await reloadedRepository.videos().first { $0.id == video.id }
+        )
+        #expect(persistedVideo.folderID == nil)
+        #expect(persistedVideo.tags == ["Swift", "Animation"])
+    }
+
     @Test func videoTitleUsesTheBestAvailableSource() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

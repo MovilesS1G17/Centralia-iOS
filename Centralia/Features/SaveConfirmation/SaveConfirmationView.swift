@@ -4,8 +4,10 @@ struct SaveConfirmationView: View {
     @State private var viewModel: SaveConfirmationViewModel
     @State private var showsNoteEditor = false
     @State private var showsVideoDetail = false
+    @State private var folderName: String?
 
-    private let folderName: String?
+    private let videoRepository: any VideoItemRepository
+    private let folderRepository: any FolderRepository
     private let videoUpdated: () -> Void
     private let done: () -> Void
 
@@ -13,6 +15,7 @@ struct SaveConfirmationView: View {
         video: VideoItem,
         folderName: String?,
         videoRepository: any VideoItemRepository,
+        folderRepository: any FolderRepository,
         videoUpdated: @escaping () -> Void,
         done: @escaping () -> Void
     ) {
@@ -22,7 +25,9 @@ struct SaveConfirmationView: View {
                 videoRepository: videoRepository
             )
         )
-        self.folderName = folderName
+        _folderName = State(initialValue: folderName)
+        self.videoRepository = videoRepository
+        self.folderRepository = folderRepository
         self.videoUpdated = videoUpdated
         self.done = done
     }
@@ -51,11 +56,24 @@ struct SaveConfirmationView: View {
             )
         }
         .navigationDestination(isPresented: $showsVideoDetail) {
-            UpcomingFeatureView(
-                title: viewModel.video.displayTitle,
-                screenNumber: 7,
-                systemImage: "play.rectangle",
-                detail: "Video Detail will be implemented in Screen 7."
+            VideoDetailView(
+                video: viewModel.video,
+                videoRepository: videoRepository,
+                folderRepository: folderRepository,
+                videoChanged: { updatedVideo in
+                    viewModel.replaceVideo(updatedVideo)
+                    Task {
+                        let folders = try? await folderRepository.folders()
+                        folderName = updatedVideo.folderID.flatMap { folderID in
+                            folders?.first { $0.id == folderID }?.name
+                        }
+                    }
+                    videoUpdated()
+                },
+                videoDeleted: { _ in
+                    videoUpdated()
+                    done()
+                }
             )
         }
         .alert("Couldn’t save note", isPresented: failureBinding) {
@@ -213,6 +231,7 @@ struct SaveConfirmationView: View {
             }
         )
     }
+
 }
 
 private struct SaveConfirmationNoteSheet: View {

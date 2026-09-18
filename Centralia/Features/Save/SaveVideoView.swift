@@ -11,6 +11,7 @@ struct SaveVideoView: View {
 
     private let videoSaved: () -> Void
     private let videoRepository: any VideoItemRepository
+    private let folderRepository: any FolderRepository
 
     private enum Field: Hashable {
         case url
@@ -31,6 +32,7 @@ struct SaveVideoView: View {
             )
         )
         self.videoRepository = videoRepository
+        self.folderRepository = folderRepository
         self.videoSaved = videoSaved
     }
 
@@ -41,6 +43,7 @@ struct SaveVideoView: View {
                     video: savedVideo,
                     folderName: viewModel.folders.first { $0.id == savedVideo.folderID }?.name,
                     videoRepository: videoRepository,
+                    folderRepository: folderRepository,
                     videoUpdated: videoSaved,
                     done: { dismiss() }
                 )

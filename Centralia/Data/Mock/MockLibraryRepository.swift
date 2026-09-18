@@ -94,6 +94,29 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
         try await store.save(value, to: filename)
     }
 
+    func updateTags(id: UUID, tags: [String]) async throws {
+        var value = try await snapshot()
+
+        guard let index = value.videos.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        var normalizedTags: [String] = []
+        for value in tags {
+            let tag = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tag.isEmpty,
+                  !normalizedTags.contains(where: {
+                      $0.localizedCaseInsensitiveCompare(tag) == .orderedSame
+                  }) else {
+                continue
+            }
+            normalizedTags.append(tag)
+        }
+
+        value.videos[index].tags = normalizedTags
+        try await store.save(value, to: filename)
+    }
+
     private func snapshot() async throws -> Snapshot {
         try await store.load(Snapshot.self, from: filename, seed: Self.seed)
     }

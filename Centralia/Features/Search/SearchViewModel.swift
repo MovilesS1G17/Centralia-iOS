@@ -201,6 +201,16 @@ final class SearchViewModel {
         recentlyDeletedVideo = nil
     }
 
+    func apply(_ video: VideoItem) {
+        guard let index = videos.firstIndex(where: { $0.id == video.id }) else { return }
+        videos[index] = video
+    }
+
+    func registerDeleted(_ video: VideoItem) {
+        videos.removeAll { $0.id == video.id }
+        recentlyDeletedVideo = video
+    }
+
     func move(_ video: VideoItem, to folderID: UUID?) async {
         do {
             try await videoRepository.moveVideo(id: video.id, to: folderID)

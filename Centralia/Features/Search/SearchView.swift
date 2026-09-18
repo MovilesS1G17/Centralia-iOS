@@ -12,6 +12,9 @@ struct SearchView: View {
     @State private var movingVideo: VideoItem?
     @FocusState private var searchIsFocused: Bool
 
+    private let videoRepository: any VideoItemRepository
+    private let folderRepository: any FolderRepository
+
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
@@ -24,6 +27,8 @@ struct SearchView: View {
                 searchHistoryRepository: searchHistoryRepository
             )
         )
+        self.videoRepository = videoRepository
+        self.folderRepository = folderRepository
     }
 
     var body: some View {
@@ -54,11 +59,16 @@ struct SearchView: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case let .video(video):
-                    UpcomingFeatureView(
-                        title: video.displayTitle,
-                        screenNumber: 7,
-                        systemImage: "play.rectangle",
-                        detail: "Video Detail will be implemented in Screen 7."
+                    VideoDetailView(
+                        video: video,
+                        videoRepository: videoRepository,
+                        folderRepository: folderRepository,
+                        videoChanged: { updatedVideo in
+                            viewModel.apply(updatedVideo)
+                        },
+                        videoDeleted: { deletedVideo in
+                            viewModel.registerDeleted(deletedVideo)
+                        }
                     )
                     .toolbar(.hidden, for: .tabBar)
                 }
