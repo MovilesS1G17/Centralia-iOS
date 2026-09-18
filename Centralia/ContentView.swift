@@ -31,7 +31,8 @@ struct ContentView: View {
                 AuthenticatedAppView(
                     user: user,
                     videoRepository: container.videoItemRepository,
-                    folderRepository: container.folderRepository
+                    folderRepository: container.folderRepository,
+                    searchHistoryRepository: container.searchHistoryRepository
                 )
             }
         }

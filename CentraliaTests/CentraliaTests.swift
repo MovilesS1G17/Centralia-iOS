@@ -151,4 +151,87 @@ struct CentraliaTests {
         video.customTitle = "My saved title"
         #expect(video.displayTitle == "My saved title")
     }
+
+    @Test func searchUpdatesResultsFromQueryAndFilters() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let libraryRepository = MockLibraryRepository(
+            store: store,
+            filename: "search-library-test.json"
+        )
+        let searchHistoryRepository = MockSearchHistoryRepository(
+            store: store,
+            filename: "search-history-test.json"
+        )
+        let viewModel = SearchViewModel(
+            videoRepository: libraryRepository,
+            folderRepository: libraryRepository,
+            searchHistoryRepository: searchHistoryRepository
+        )
+
+        await viewModel.load()
+        #expect(viewModel.filteredVideos.count == 6)
+
+        viewModel.query = "SwiftUI animation"
+        #expect(viewModel.filteredVideos.map(\.displayTitle) == ["Smoother SwiftUI transitions"])
+
+        viewModel.query = ""
+        viewModel.selectedPlatform = .instagramReel
+        #expect(viewModel.filteredVideos.count == 2)
+        #expect(viewModel.filteredVideos.allSatisfy { $0.platform == .instagramReel })
+
+        viewModel.selectedTags = ["design"]
+        #expect(viewModel.filteredVideos.map(\.displayTitle) == ["Three color rules"])
+    }
+
+    @Test func searchDoesNotClaimTranscriptOrCaptionMatching() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let libraryRepository = MockLibraryRepository(
+            store: store,
+            filename: "search-fields-test.json"
+        )
+        let viewModel = SearchViewModel(
+            videoRepository: libraryRepository,
+            folderRepository: libraryRepository,
+            searchHistoryRepository: MockSearchHistoryRepository(
+                store: store,
+                filename: "search-fields-history-test.json"
+            )
+        )
+
+        await viewModel.load()
+        viewModel.query = "natural light"
+
+        #expect(viewModel.filteredVideos.isEmpty)
+    }
+
+    @Test func recentSearchesPersistAndDeduplicate() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let filename = "recent-searches-persistence-test.json"
+        let repository = MockSearchHistoryRepository(store: store, filename: filename)
+
+        try await repository.recordSearch("color")
+        try await repository.recordSearch("pasta")
+        try await repository.recordSearch("COLOR")
+
+        let reloadedRepository = MockSearchHistoryRepository(store: store, filename: filename)
+        let searches = try await reloadedRepository.recentSearches()
+
+        #expect(searches.first == "COLOR")
+        #expect(searches.count { $0.localizedCaseInsensitiveCompare("color") == .orderedSame } == 1)
+
+        try await reloadedRepository.clearSearchHistory()
+        #expect(try await reloadedRepository.recentSearches().isEmpty)
+    }
 }

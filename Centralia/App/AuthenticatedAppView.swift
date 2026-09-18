@@ -4,6 +4,7 @@ struct AuthenticatedAppView: View {
     let user: AuthenticatedUser
     let videoRepository: any VideoItemRepository
     let folderRepository: any FolderRepository
+    let searchHistoryRepository: any SearchHistoryRepository
 
     @State private var selectedTab: AppTab = .library
     @State private var previousTab: AppTab = .library
@@ -21,14 +22,11 @@ struct AuthenticatedAppView: View {
             }
 
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
-                NavigationStack {
-                    UpcomingFeatureView(
-                        title: "Search",
-                        screenNumber: 4,
-                        systemImage: "magnifyingglass",
-                        detail: "Global Search is the next numbered screen."
-                    )
-                }
+                SearchView(
+                    videoRepository: videoRepository,
+                    folderRepository: folderRepository,
+                    searchHistoryRepository: searchHistoryRepository
+                )
             }
 
             Tab("Save", systemImage: "plus", value: AppTab.save) {

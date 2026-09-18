@@ -56,6 +56,31 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testSearchUpdatesResultsWhileTyping() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        app.tabBars.buttons["Search"].tap()
+
+        XCTAssertTrue(app.staticTexts["Shorts in your library"].waitForExistence(timeout: 3))
+
+        let searchField = app.textFields["globalSearchField"]
+        XCTAssertTrue(searchField.exists)
+        searchField.tap()
+        XCTAssertTrue(app.staticTexts["Recent searches"].waitForExistence(timeout: 2))
+        searchField.typeText("swift")
+
+        XCTAssertTrue(app.staticTexts["Smoother SwiftUI transitions"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["Tiny studio ideas"].exists)
+
+        let searchScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        searchScreenshot.name = "Screen 4 - Global Search"
+        searchScreenshot.lifetime = .keepAlways
+        add(searchScreenshot)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
