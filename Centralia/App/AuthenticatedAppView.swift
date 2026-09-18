@@ -5,10 +5,12 @@ struct AuthenticatedAppView: View {
     let videoRepository: any VideoItemRepository
     let folderRepository: any FolderRepository
     let searchHistoryRepository: any SearchHistoryRepository
+    let videoImportPipeline: any VideoImportPipeline
 
     @State private var selectedTab: AppTab = .library
     @State private var previousTab: AppTab = .library
     @State private var presentsSave = false
+    @State private var libraryRevision = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -19,6 +21,7 @@ struct AuthenticatedAppView: View {
                     selectedTab: $selectedTab,
                     presentSave: { presentsSave = true }
                 )
+                .id(libraryRevision)
             }
 
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
@@ -27,6 +30,7 @@ struct AuthenticatedAppView: View {
                     folderRepository: folderRepository,
                     searchHistoryRepository: searchHistoryRepository
                 )
+                .id(libraryRevision)
             }
 
             Tab("Save", systemImage: "plus", value: AppTab.save) {
@@ -65,19 +69,12 @@ struct AuthenticatedAppView: View {
             presentsSave = true
         }
         .sheet(isPresented: $presentsSave) {
-            NavigationStack {
-                UpcomingFeatureView(
-                    title: "Save Short Video",
-                    screenNumber: 5,
-                    systemImage: "plus.square.on.square"
-                )
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close", systemImage: "xmark") {
-                            presentsSave = false
-                        }
-                    }
-                }
+            SaveVideoView(
+                pipeline: videoImportPipeline,
+                videoRepository: videoRepository,
+                folderRepository: folderRepository
+            ) {
+                libraryRevision += 1
             }
         }
     }

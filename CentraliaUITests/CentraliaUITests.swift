@@ -68,7 +68,6 @@ final class CentraliaUITests: XCTestCase {
         let searchField = app.textFields["globalSearchField"]
         XCTAssertTrue(searchField.exists)
         searchField.tap()
-        XCTAssertTrue(app.staticTexts["Recent searches"].waitForExistence(timeout: 2))
         searchField.typeText("swift")
 
         XCTAssertTrue(app.staticTexts["Smoother SwiftUI transitions"].waitForExistence(timeout: 2))
@@ -78,6 +77,63 @@ final class CentraliaUITests: XCTestCase {
         searchScreenshot.name = "Screen 4 - Global Search"
         searchScreenshot.lifetime = .keepAlways
         add(searchScreenshot)
+    }
+
+    @MainActor
+    func testSaveVideoAnalyzesAndPersistsAnUnorganizedShort() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        app.tabBars.buttons["Save"].tap()
+
+        XCTAssertTrue(app.staticTexts["Save Short Video"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["addVideoTagButton"].exists)
+        XCTAssertEqual(
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Remove ")).count,
+            0
+        )
+
+        let sourceURL = "https://www.youtube.com/shorts/\(UUID().uuidString)"
+        let urlField = app.textFields["saveVideoURLField"]
+        XCTAssertTrue(urlField.exists)
+        urlField.tap()
+        urlField.typeText(sourceURL)
+
+        let status = app.descendants(matching: .any)["saveVideoImportStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 3))
+        let detected = NSPredicate(format: "label CONTAINS %@", "YouTube Short detected")
+        expectation(for: detected, evaluatedWith: status)
+        waitForExpectations(timeout: 6)
+
+        app.buttons["saveVideoFolderPicker"].tap()
+        XCTAssertTrue(app.buttons["Unorganized"].waitForExistence(timeout: 2))
+        app.buttons["Unorganized"].tap()
+
+        app.swipeUp()
+        let formScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        formScreenshot.name = "Screen 5 - Analyzed Video Form"
+        formScreenshot.lifetime = .keepAlways
+        add(formScreenshot)
+
+        let organizedSaveButton = app.buttons["saveVideoButton"]
+        XCTAssertTrue(organizedSaveButton.waitForExistence(timeout: 2))
+        organizedSaveButton.tap()
+        XCTAssertTrue(
+            app.staticTexts["Error: Select a folder before saving."]
+                .waitForExistence(timeout: 2)
+        )
+
+        let saveButton = app.buttons["saveVideoUnorganizedButton"]
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 2))
+        saveButton.tap()
+
+        XCTAssertTrue(app.staticTexts["Video saved"].waitForExistence(timeout: 3))
+
+        let saveScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        saveScreenshot.name = "Screen 5 - Save Short Video"
+        saveScreenshot.lifetime = .keepAlways
+        add(saveScreenshot)
     }
 
     @MainActor

@@ -28,6 +28,36 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
         }
     }
 
+    func saveVideo(_ video: VideoItem) async throws {
+        var value = try await snapshot()
+
+        guard !value.videos.contains(where: { $0.sourceURL == video.sourceURL }) else {
+            throw VideoItemRepositoryError.duplicateVideo
+        }
+
+        value.videos.append(video)
+        try await store.save(value, to: filename)
+    }
+
+    func createFolder(named name: String) async throws -> LibraryFolder {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw FolderRepositoryError.emptyName
+        }
+
+        var value = try await snapshot()
+        guard !value.folders.contains(where: {
+            $0.name.localizedCaseInsensitiveCompare(trimmedName) == .orderedSame
+        }) else {
+            throw FolderRepositoryError.duplicateName
+        }
+
+        let folder = LibraryFolder(id: UUID(), name: trimmedName, symbolName: "folder")
+        value.folders.append(folder)
+        try await store.save(value, to: filename)
+        return folder
+    }
+
     func deleteVideo(id: UUID) async throws {
         var value = try await snapshot()
         value.videos.removeAll { $0.id == id }

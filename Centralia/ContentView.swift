@@ -32,7 +32,8 @@ struct ContentView: View {
                     user: user,
                     videoRepository: container.videoItemRepository,
                     folderRepository: container.folderRepository,
-                    searchHistoryRepository: container.searchHistoryRepository
+                    searchHistoryRepository: container.searchHistoryRepository,
+                    videoImportPipeline: container.videoImportPipeline
                 )
             }
         }

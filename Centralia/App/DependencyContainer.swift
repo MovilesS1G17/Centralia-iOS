@@ -3,6 +3,7 @@ final class DependencyContainer {
     let videoItemRepository: any VideoItemRepository
     let folderRepository: any FolderRepository
     let searchHistoryRepository: any SearchHistoryRepository
+    let videoImportPipeline: any VideoImportPipeline
     let session: AppSession
 
     init(
@@ -10,12 +11,14 @@ final class DependencyContainer {
         videoItemRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         searchHistoryRepository: any SearchHistoryRepository,
+        videoImportPipeline: any VideoImportPipeline,
         session: AppSession = AppSession()
     ) {
         self.authenticationRepository = authenticationRepository
         self.videoItemRepository = videoItemRepository
         self.folderRepository = folderRepository
         self.searchHistoryRepository = searchHistoryRepository
+        self.videoImportPipeline = videoImportPipeline
         self.session = session
     }
 
@@ -26,7 +29,8 @@ final class DependencyContainer {
             authenticationRepository: MockAuthenticationRepository(),
             videoItemRepository: libraryRepository,
             folderRepository: libraryRepository,
-            searchHistoryRepository: MockSearchHistoryRepository(store: store)
+            searchHistoryRepository: MockSearchHistoryRepository(store: store),
+            videoImportPipeline: MockVideoImportPipeline()
         )
     }
 }

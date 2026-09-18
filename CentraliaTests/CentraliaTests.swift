@@ -234,4 +234,162 @@ struct CentraliaTests {
         try await reloadedRepository.clearSearchHistory()
         #expect(try await reloadedRepository.recentSearches().isEmpty)
     }
+
+    @Test func videoImportPipelineIsDeterministicAndRestrictedToShortForm() async throws {
+        let pipeline = MockVideoImportPipeline(delay: .zero)
+        let sourceURL = try #require(
+            URL(string: "https://www.youtube.com/shorts/deterministic-example")
+        )
+
+        let platform = try await pipeline.detectPlatform(from: sourceURL)
+        let first = try await pipeline.extractMetadata(from: sourceURL, platform: platform)
+        let second = try await pipeline.extractMetadata(from: sourceURL, platform: platform)
+
+        #expect(platform == .youtubeShort)
+        #expect(first == second)
+        #expect(try await pipeline.generateTags(for: first).isEmpty == false)
+        #expect(try await pipeline.suggestFolder(for: first, tags: []) != nil)
+
+        let longFormURL = try #require(
+            URL(string: "https://www.youtube.com/watch?v=not-a-short")
+        )
+
+        do {
+            _ = try await pipeline.detectPlatform(from: longFormURL)
+            Issue.record("A regular YouTube video should be rejected.")
+        } catch let error as VideoImportError {
+            #expect(error == .unsupportedYouTubeVideo)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test func saveVideoAnalysisLeavesTagsUnselected() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "save-analysis-test.json"
+        )
+        let viewModel = SaveVideoViewModel(
+            pipeline: MockVideoImportPipeline(delay: .zero),
+            videoRepository: repository,
+            folderRepository: repository
+        )
+
+        await viewModel.loadFolders()
+        viewModel.urlText = "https://www.instagram.com/reel/new-centralia-item"
+        await viewModel.analyzeURL(after: .zero)
+
+        #expect(viewModel.analysisState == .ready)
+        #expect(viewModel.metadata?.platform == .instagramReel)
+        #expect(viewModel.suggestedTags.isEmpty == false)
+        #expect(viewModel.selectedTags.isEmpty)
+        #expect(viewModel.selectedFolderID != nil)
+    }
+
+    @Test func saveWithoutOrganizingPersistsOnlyMetadataAndNote() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let filename = "save-unorganized-test.json"
+        let repository = MockLibraryRepository(store: store, filename: filename)
+        let viewModel = SaveVideoViewModel(
+            pipeline: MockVideoImportPipeline(delay: .zero),
+            videoRepository: repository,
+            folderRepository: repository
+        )
+
+        await viewModel.loadFolders()
+        viewModel.urlText = "https://www.tiktok.com/@centralia/video/new-save-test"
+        await viewModel.analyzeURL(after: .zero)
+        viewModel.addTag("keep-out-of-unorganized-save")
+        viewModel.note = "Remember this explanation."
+
+        let savedVideo = try #require(await viewModel.save(organized: false))
+        let persistedVideo = try #require(
+            try await repository.videos().first { $0.id == savedVideo.id }
+        )
+
+        #expect(persistedVideo.folderID == nil)
+        #expect(persistedVideo.tags.isEmpty)
+        #expect(persistedVideo.note == "Remember this explanation.")
+    }
+
+    @Test func organizedSaveRequiresAFolder() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "save-folder-validation-test.json"
+        )
+        let viewModel = SaveVideoViewModel(
+            pipeline: MockVideoImportPipeline(delay: .zero),
+            videoRepository: repository,
+            folderRepository: repository
+        )
+
+        await viewModel.loadFolders()
+        viewModel.urlText = "https://www.youtube.com/shorts/folder-validation-test"
+        await viewModel.analyzeURL(after: .zero)
+        viewModel.selectedFolderID = nil
+
+        let savedVideo = await viewModel.save(organized: true)
+
+        #expect(savedVideo == nil)
+        #expect(viewModel.folderSelectionError == "Select a folder before saving.")
+        #expect(try await repository.videos().count == 6)
+
+        viewModel.selectedFolderID = try #require(viewModel.folders.first?.id)
+        #expect(viewModel.folderSelectionError == nil)
+    }
+
+    @Test func newFoldersPersistAndDuplicateVideosAreRejected() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let filename = "save-repository-test.json"
+        let repository = MockLibraryRepository(store: store, filename: filename)
+        let folder = try await repository.createFolder(named: "Motion")
+
+        let reloadedRepository = MockLibraryRepository(store: store, filename: filename)
+        #expect(try await reloadedRepository.folders().contains(folder))
+
+        let video = VideoItem(
+            id: UUID(),
+            sourceURL: try #require(URL(string: "https://www.youtube.com/shorts/duplicate-test")),
+            platform: .youtubeShort,
+            creator: "@centralia",
+            durationSeconds: 20,
+            sourceCaption: nil,
+            transcript: nil,
+            extractedOnScreenText: nil,
+            generatedSummary: "Duplicate example",
+            customTitle: nil,
+            folderID: folder.id,
+            tags: [],
+            note: nil,
+            savedAt: Date(),
+            analysisStatus: .completed
+        )
+
+        try await reloadedRepository.saveVideo(video)
+
+        do {
+            try await reloadedRepository.saveVideo(video)
+            Issue.record("A duplicate source URL should not be saved twice.")
+        } catch let error as VideoItemRepositoryError {
+            #expect(error == .duplicateVideo)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
 }
