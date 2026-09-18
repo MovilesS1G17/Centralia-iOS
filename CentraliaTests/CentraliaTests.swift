@@ -290,7 +290,7 @@ struct CentraliaTests {
         #expect(viewModel.selectedFolderID != nil)
     }
 
-    @Test func saveWithoutOrganizingPersistsOnlyMetadataAndNote() async throws {
+    @Test func saveWithoutOrganizingPersistsSelectedTagsAndNote() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -316,7 +316,7 @@ struct CentraliaTests {
         )
 
         #expect(persistedVideo.folderID == nil)
-        #expect(persistedVideo.tags.isEmpty)
+        #expect(persistedVideo.tags == ["keep-out-of-unorganized-save"])
         #expect(persistedVideo.note == "Remember this explanation.")
     }
 
@@ -391,5 +391,31 @@ struct CentraliaTests {
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
+    }
+
+    @Test func saveConfirmationPersistsNoteAndHidesAddNoteAction() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let filename = "save-confirmation-note-test.json"
+        let repository = MockLibraryRepository(store: store, filename: filename)
+        let video = try #require(try await repository.videos().first { $0.note == nil })
+        let viewModel = SaveConfirmationViewModel(
+            video: video,
+            videoRepository: repository
+        )
+
+        #expect(viewModel.shouldShowAddNote)
+        #expect(await viewModel.saveNote("  Review this during the next sprint.  "))
+        #expect(viewModel.shouldShowAddNote == false)
+        #expect(viewModel.video.note == "Review this during the next sprint.")
+
+        let reloadedRepository = MockLibraryRepository(store: store, filename: filename)
+        let reloadedVideo = try #require(
+            try await reloadedRepository.videos().first { $0.id == video.id }
+        )
+        #expect(reloadedVideo.note == "Review this during the next sprint.")
     }
 }

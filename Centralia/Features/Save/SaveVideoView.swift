@@ -10,6 +10,7 @@ struct SaveVideoView: View {
     @FocusState private var focusedField: Field?
 
     private let videoSaved: () -> Void
+    private let videoRepository: any VideoItemRepository
 
     private enum Field: Hashable {
         case url
@@ -29,13 +30,20 @@ struct SaveVideoView: View {
                 folderRepository: folderRepository
             )
         )
+        self.videoRepository = videoRepository
         self.videoSaved = videoSaved
     }
 
     var body: some View {
         NavigationStack {
             if let savedVideo {
-                saveConfirmationPlaceholder(for: savedVideo)
+                SaveConfirmationView(
+                    video: savedVideo,
+                    folderName: viewModel.folders.first { $0.id == savedVideo.folderID }?.name,
+                    videoRepository: videoRepository,
+                    videoUpdated: videoSaved,
+                    done: { dismiss() }
+                )
             } else {
                 saveForm
             }
@@ -329,36 +337,6 @@ struct SaveVideoView: View {
             .accessibilityIdentifier("saveVideoUnorganizedButton")
         }
         .padding(.top, CentraliaTheme.Spacing.small)
-    }
-
-    private func saveConfirmationPlaceholder(for video: VideoItem) -> some View {
-        VStack(spacing: CentraliaTheme.Spacing.large) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 58))
-                .foregroundStyle(Color.centraliaInk)
-
-            Text("Video saved")
-                .font(CentraliaTheme.Typography.display)
-
-            Text("“\(video.displayTitle)” is now available in your library. Screen 6 will add the complete confirmation actions.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(Color.centraliaSecondaryText)
-
-            Button("Done") {
-                dismiss()
-            }
-            .font(.headline)
-            .foregroundStyle(Color.centraliaCanvas)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(Color.centraliaInk, in: RoundedRectangle(cornerRadius: 16))
-            .buttonStyle(CentraliaPressStyle())
-        }
-        .padding(CentraliaTheme.Spacing.large)
-        .frame(maxWidth: 520)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.centraliaCanvas.ignoresSafeArea())
-        .foregroundStyle(Color.centraliaInk)
-        .toolbar(.hidden, for: .navigationBar)
     }
 
     private var saveFailureBinding: Binding<Bool> {

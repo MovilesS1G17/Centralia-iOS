@@ -106,6 +106,16 @@ final class CentraliaUITests: XCTestCase {
         expectation(for: detected, evaluatedWith: status)
         waitForExpectations(timeout: 6)
 
+        app.buttons["addVideoTagButton"].tap()
+        let tagField = app.textFields["newTagField"]
+        XCTAssertTrue(tagField.waitForExistence(timeout: 2))
+        for tag in ["swiftui-test", "motion-test", "learning-test"] {
+            tagField.tap()
+            tagField.typeText(tag)
+            app.buttons["Add Tag"].tap()
+        }
+        app.navigationBars["Add tag"].buttons["Done"].tap()
+
         app.buttons["saveVideoFolderPicker"].tap()
         XCTAssertTrue(app.buttons["Unorganized"].waitForExistence(timeout: 2))
         app.buttons["Unorganized"].tap()
@@ -128,10 +138,23 @@ final class CentraliaUITests: XCTestCase {
         XCTAssertTrue(saveButton.waitForExistence(timeout: 2))
         saveButton.tap()
 
-        XCTAssertTrue(app.staticTexts["Video saved"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Saved to Centralia"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["No Folder Select"].exists)
+        XCTAssertTrue(app.staticTexts["swiftui-test"].exists)
+        XCTAssertTrue(app.staticTexts["motion-test"].exists)
+        XCTAssertTrue(app.staticTexts["learning-test"].exists)
+        XCTAssertTrue(app.buttons["Add Note"].exists)
+
+        app.buttons["Add Note"].tap()
+        let noteField = app.textViews["confirmationNoteField"]
+        XCTAssertTrue(noteField.waitForExistence(timeout: 2))
+        noteField.tap()
+        noteField.typeText("Review this during the next sprint.")
+        app.navigationBars["Add Note"].buttons["Save"].tap()
+        XCTAssertTrue(app.buttons["Add Note"].waitForNonExistence(timeout: 3))
 
         let saveScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        saveScreenshot.name = "Screen 5 - Save Short Video"
+        saveScreenshot.name = "Screen 6 - Save Confirmation"
         saveScreenshot.lifetime = .keepAlways
         add(saveScreenshot)
     }

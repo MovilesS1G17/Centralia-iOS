@@ -82,6 +82,18 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
         try await store.save(value, to: filename)
     }
 
+    func updateNote(id: UUID, note: String?) async throws {
+        var value = try await snapshot()
+
+        guard let index = value.videos.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        value.videos[index].note = trimmedNote?.isEmpty == false ? trimmedNote : nil
+        try await store.save(value, to: filename)
+    }
+
     private func snapshot() async throws -> Snapshot {
         try await store.load(Snapshot.self, from: filename, seed: Self.seed)
     }

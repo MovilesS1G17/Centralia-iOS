@@ -210,7 +210,7 @@ final class SaveVideoViewModel {
             generatedSummary: metadata.generatedSummary,
             customTitle: nil,
             folderID: organized ? selectedFolderID : nil,
-            tags: organized ? selectedTags : [],
+            tags: selectedTags,
             note: trimmedNote.isEmpty ? nil : trimmedNote,
             savedAt: Date(),
             analysisStatus: .completed
