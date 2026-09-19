@@ -670,4 +670,205 @@ struct CentraliaTests {
         #expect(viewModel.selectedSuggestionID == viewModel.suggestions[1].id)
         #expect(viewModel.unorganizedCount == 3)
     }
+
+    @Test func profileLoadsRealLibraryStatisticsAndMockStorage() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let libraryRepository = MockLibraryRepository(
+            store: store,
+            filename: "profile-statistics-library.json"
+        )
+        let userRepository = MockUserRepository(
+            store: store,
+            filename: "profile-statistics-users.json",
+            delay: .zero
+        )
+        let user = AuthenticatedUser(
+            id: UUID(),
+            displayName: "David Caro",
+            email: "d.caro@uniandes.edu.co"
+        )
+        let viewModel = ProfileViewModel(
+            authenticatedUser: user,
+            userRepository: userRepository,
+            videoRepository: libraryRepository,
+            folderRepository: libraryRepository,
+            exportService: JSONLibraryExportService(
+                videoRepository: libraryRepository,
+                folderRepository: libraryRepository,
+                userRepository: userRepository
+            ),
+            authenticationRepository: MockAuthenticationRepository(delay: .zero)
+        )
+
+        await viewModel.load()
+
+        #expect(viewModel.state == .loaded)
+        #expect(viewModel.profile?.displayName == "David Caro")
+        #expect(viewModel.statistics.savedCount == 6)
+        #expect(viewModel.statistics.folderCount == 4)
+        #expect(viewModel.statistics.unorganizedCount == 1)
+        #expect(viewModel.statistics.count(for: .tiktok) == 2)
+        #expect(viewModel.statistics.count(for: .instagramReel) == 2)
+        #expect(viewModel.statistics.count(for: .youtubeShort) == 2)
+        #expect(viewModel.storageUsage.percentage == 48)
+    }
+
+    @Test func profileAndNotificationChangesPersistBehindUserRepository() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let userRepository = MockUserRepository(
+            store: store,
+            filename: "profile-persistence-users.json",
+            delay: .zero
+        )
+        let libraryRepository = MockLibraryRepository(
+            store: store,
+            filename: "profile-persistence-library.json"
+        )
+        let originalUser = AuthenticatedUser(
+            id: UUID(),
+            displayName: "Centralia User",
+            email: "demo@centralia.app"
+        )
+        let viewModel = ProfileViewModel(
+            authenticatedUser: originalUser,
+            userRepository: userRepository,
+            videoRepository: libraryRepository,
+            folderRepository: libraryRepository,
+            exportService: JSONLibraryExportService(
+                videoRepository: libraryRepository,
+                folderRepository: libraryRepository,
+                userRepository: userRepository
+            ),
+            authenticationRepository: MockAuthenticationRepository(delay: .zero)
+        )
+        await viewModel.load()
+
+        let updatedUser = await viewModel.updateProfile(
+            displayName: "David Caro",
+            email: "DAVID@EXAMPLE.COM"
+        )
+        #expect(updatedUser?.displayName == "David Caro")
+        #expect(updatedUser?.email == "david@example.com")
+
+        var preferences = viewModel.notificationPreferences
+        preferences.productUpdates = true
+        preferences.weeklyLibrarySummary = false
+        await viewModel.updateNotificationPreferences(preferences)
+
+        let reloadedRepository = MockUserRepository(
+            store: store,
+            filename: "profile-persistence-users.json",
+            delay: .zero
+        )
+        let persistedProfile = try await reloadedRepository.profile(for: originalUser)
+        let persistedPreferences = try await reloadedRepository.notificationPreferences(
+            for: originalUser.id
+        )
+        #expect(persistedProfile.displayName == "David Caro")
+        #expect(persistedProfile.email == "david@example.com")
+        #expect(persistedPreferences.productUpdates)
+        #expect(persistedPreferences.weeklyLibrarySummary == false)
+    }
+
+    @Test func profilePasswordChangeSurfacesCredentialFailure() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let userRepository = MockUserRepository(
+            store: store,
+            filename: "profile-password-users.json",
+            delay: .zero
+        )
+        let libraryRepository = MockLibraryRepository(
+            store: store,
+            filename: "profile-password-library.json"
+        )
+        let user = AuthenticatedUser(
+            id: UUID(),
+            displayName: "David Caro",
+            email: "david@example.com"
+        )
+        let viewModel = ProfileViewModel(
+            authenticatedUser: user,
+            userRepository: userRepository,
+            videoRepository: libraryRepository,
+            folderRepository: libraryRepository,
+            exportService: JSONLibraryExportService(
+                videoRepository: libraryRepository,
+                folderRepository: libraryRepository,
+                userRepository: userRepository
+            ),
+            authenticationRepository: MockAuthenticationRepository(delay: .zero)
+        )
+        await viewModel.load()
+
+        #expect(
+            await viewModel.changePassword(
+                currentPassword: "wrong-password",
+                newPassword: "new-password"
+            ) == false
+        )
+        #expect(
+            viewModel.failureMessage
+                == UserRepositoryError.incorrectCurrentPassword.localizedDescription
+        )
+
+        #expect(
+            await viewModel.changePassword(
+                currentPassword: "current-password",
+                newPassword: "new-password"
+            )
+        )
+    }
+
+    @Test func libraryExportProducesShareableJSONWithRepositoryData() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = MockDataStore(directoryURL: directory)
+        let libraryRepository = MockLibraryRepository(
+            store: store,
+            filename: "profile-export-library.json"
+        )
+        let userRepository = MockUserRepository(
+            store: store,
+            filename: "profile-export-users.json",
+            delay: .zero
+        )
+        let authenticatedUser = AuthenticatedUser(
+            id: UUID(),
+            displayName: "David Caro",
+            email: "david@example.com"
+        )
+        let profile = try await userRepository.profile(for: authenticatedUser)
+        let service = JSONLibraryExportService(
+            videoRepository: libraryRepository,
+            folderRepository: libraryRepository,
+            userRepository: userRepository
+        )
+
+        let url = try await service.exportLibrary(for: profile)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let data = try Data(contentsOf: url)
+        let json = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect((json["videos"] as? [[String: Any]])?.count == 6)
+        #expect((json["folders"] as? [[String: Any]])?.count == 4)
+        #expect((json["profile"] as? [String: Any])?["displayName"] as? String == "David Caro")
+        #expect(json["notificationPreferences"] != nil)
+    }
 }

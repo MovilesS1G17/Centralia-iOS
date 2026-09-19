@@ -338,6 +338,38 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testProfileShowsRepositoryDataAndSignsOut() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        app.tabBars.buttons["Profile"].tap()
+
+        XCTAssertTrue(app.staticTexts["Profile"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.descendants(matching: .any)["profileIdentity"].exists)
+        XCTAssertTrue(app.staticTexts["Storage Used"].exists)
+        XCTAssertTrue(app.staticTexts["Your library"].exists)
+        XCTAssertTrue(app.staticTexts["Saved by platform"].exists)
+
+        app.buttons["Edit Profile"].tap()
+        XCTAssertTrue(app.navigationBars["Edit Profile"].waitForExistence(timeout: 2))
+        app.navigationBars["Edit Profile"].buttons["Cancel"].tap()
+
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "Screen 11 - Profile"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        let signOut = app.descendants(matching: .any)["profileSignOut"]
+        signOut.tap()
+        let destructiveSignOut = app.sheets.buttons["Sign Out"]
+        XCTAssertTrue(destructiveSignOut.waitForExistence(timeout: 2))
+        destructiveSignOut.tap()
+
+        XCTAssertTrue(app.staticTexts["Welcome back."].waitForExistence(timeout: 4))
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()

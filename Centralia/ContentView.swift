@@ -33,7 +33,12 @@ struct ContentView: View {
                     videoRepository: container.videoItemRepository,
                     folderRepository: container.folderRepository,
                     searchHistoryRepository: container.searchHistoryRepository,
-                    videoImportPipeline: container.videoImportPipeline
+                    userRepository: container.userRepository,
+                    libraryExportService: container.libraryExportService,
+                    authenticationRepository: container.authenticationRepository,
+                    videoImportPipeline: container.videoImportPipeline,
+                    userChanged: container.session.updateAuthenticatedUser,
+                    signedOut: container.session.signOut
                 )
             }
         }

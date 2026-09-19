@@ -25,4 +25,13 @@ final class AppSession {
     func completeAuthentication(with user: AuthenticatedUser) {
         phase = .authenticated(user)
     }
+
+    func updateAuthenticatedUser(_ user: AuthenticatedUser) {
+        guard case .authenticated = phase else { return }
+        phase = .authenticated(user)
+    }
+
+    func signOut() {
+        phase = .unauthenticated(.logIn)
+    }
 }

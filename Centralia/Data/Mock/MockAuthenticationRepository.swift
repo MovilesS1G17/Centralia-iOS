@@ -62,6 +62,10 @@ struct MockAuthenticationRepository: AuthenticationRepository {
         }
     }
 
+    func signOut() async throws {
+        try await simulateWork()
+    }
+
     private func simulateWork() async throws {
         try await Task.sleep(for: delay)
     }

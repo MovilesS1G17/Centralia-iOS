@@ -5,7 +5,12 @@ struct AuthenticatedAppView: View {
     let videoRepository: any VideoItemRepository
     let folderRepository: any FolderRepository
     let searchHistoryRepository: any SearchHistoryRepository
+    let userRepository: any UserRepository
+    let libraryExportService: any LibraryExportService
+    let authenticationRepository: any AuthenticationRepository
     let videoImportPipeline: any VideoImportPipeline
+    let userChanged: (AuthenticatedUser) -> Void
+    let signedOut: () -> Void
 
     @State private var selectedTab: AppTab = .library
     @State private var previousTab: AppTab = .library
@@ -51,14 +56,17 @@ struct AuthenticatedAppView: View {
             }
 
             Tab("Profile", systemImage: "person", value: AppTab.profile) {
-                NavigationStack {
-                    UpcomingFeatureView(
-                        title: "Profile",
-                        screenNumber: 11,
-                        systemImage: "person",
-                        detail: "Signed in as \(user.displayName). Screen 11 will add account controls."
-                    )
-                }
+                ProfileView(
+                    authenticatedUser: user,
+                    userRepository: userRepository,
+                    videoRepository: videoRepository,
+                    folderRepository: folderRepository,
+                    exportService: libraryExportService,
+                    authenticationRepository: authenticationRepository,
+                    userChanged: userChanged,
+                    signedOut: signedOut
+                )
+                .id(user.id)
             }
         }
         .tint(Color.centraliaInk)
