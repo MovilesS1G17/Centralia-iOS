@@ -148,11 +148,17 @@ final class SaveVideoViewModel {
     }
 
     @discardableResult
-    func createFolder(named name: String) async -> LibraryFolder? {
+    func createFolder(
+        named name: String,
+        symbol: FolderSymbol = .folder
+    ) async -> LibraryFolder? {
         folderFailureMessage = nil
 
         do {
-            let folder = try await folderRepository.createFolder(named: name)
+            let folder = try await folderRepository.createFolder(
+                named: name,
+                symbolName: symbol.rawValue
+            )
             folders.append(folder)
             folders.sort {
                 $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending

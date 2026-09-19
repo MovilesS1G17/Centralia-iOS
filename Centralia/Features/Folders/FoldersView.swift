@@ -7,17 +7,16 @@ struct FoldersView: View {
     }
 
     @State private var viewModel: FoldersViewModel
-    @Binding private var selectedTab: AppTab
     @State private var path: [Route] = []
     @State private var showsNewFolder = false
+    @FocusState private var searchIsFocused: Bool
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
 
     init(
         videoRepository: any VideoItemRepository,
-        folderRepository: any FolderRepository,
-        selectedTab: Binding<AppTab>
+        folderRepository: any FolderRepository
     ) {
         _viewModel = State(
             initialValue: FoldersViewModel(
@@ -25,7 +24,6 @@ struct FoldersView: View {
                 folderRepository: folderRepository
             )
         )
-        _selectedTab = selectedTab
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
     }
@@ -35,7 +33,7 @@ struct FoldersView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
                     header
-                    searchShortcut
+                    folderSearchField
                     content
                 }
                 .padding(.horizontal, CentraliaTheme.Spacing.medium)
@@ -98,29 +96,41 @@ struct FoldersView: View {
         }
     }
 
-    private var searchShortcut: some View {
-        Button {
-            selectedTab = .search
-        } label: {
-            HStack(spacing: CentraliaTheme.Spacing.medium) {
-                Image(systemName: "magnifyingglass")
-                    .font(.title3)
-                Text("Search folders")
-                    .font(.body)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(Color.centraliaSecondaryText)
-            .padding(.horizontal, CentraliaTheme.Spacing.medium)
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 18))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.centraliaDivider, lineWidth: 1)
+    private var folderSearchField: some View {
+        HStack(spacing: CentraliaTheme.Spacing.medium) {
+            Image(systemName: "magnifyingglass")
+                .font(.title3)
+                .accessibilityHidden(true)
+
+            TextField("Search folders", text: $viewModel.query)
+                .font(.body)
+                .focused($searchIsFocused)
+                .submitLabel(.done)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("foldersSearchField")
+
+            if !viewModel.query.isEmpty {
+                Button("Clear search", systemImage: "xmark.circle.fill") {
+                    viewModel.query = ""
+                    searchIsFocused = true
+                }
+                .labelStyle(.iconOnly)
+                .foregroundStyle(Color.centraliaSecondaryText)
+                .accessibilityIdentifier("clearFoldersSearch")
             }
         }
-        .buttonStyle(CentraliaPressStyle())
-        .accessibilityHint("Opens Global Search")
-        .accessibilityIdentifier("foldersSearchShortcut")
+        .foregroundStyle(Color.centraliaInk)
+        .padding(.horizontal, CentraliaTheme.Spacing.medium)
+        .frame(maxWidth: .infinity, minHeight: 58)
+        .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(
+                    searchIsFocused ? Color.centraliaInk : Color.centraliaDivider,
+                    lineWidth: searchIsFocused ? 2 : 1
+                )
+        }
     }
 
     @ViewBuilder
@@ -145,7 +155,9 @@ struct FoldersView: View {
             .frame(maxWidth: .infinity, minHeight: 320)
 
         case .loaded:
-            unorganizedCollection
+            if viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                unorganizedCollection
+            }
 
             if viewModel.filteredFolders.isEmpty {
                 if viewModel.folders.isEmpty {
@@ -238,7 +250,7 @@ private struct FolderGridCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
-                Image(systemName: "folder")
+                Image(systemName: folder.symbolName)
                     .font(.title2.weight(.medium))
                     .frame(width: 36, height: 36, alignment: .leading)
                     .accessibilityHidden(true)
@@ -272,40 +284,51 @@ private struct NewFolderSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: FoldersViewModel
     @State private var folderName = ""
+    @State private var selectedSymbol = FolderSymbol.folder
     @FocusState private var folderNameIsFocused: Bool
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
-                Text("Choose a clear name for this collection of saved shorts.")
-                    .font(.body)
-                    .foregroundStyle(Color.centraliaSecondaryText)
+            ScrollView {
+                VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
+                    Text("Choose a clear name for this collection of saved shorts.")
+                        .font(.body)
+                        .foregroundStyle(Color.centraliaSecondaryText)
 
-                TextField("Folder name", text: $folderName)
-                    .font(.body)
-                    .focused($folderNameIsFocused)
-                    .submitLabel(.done)
-                    .textInputAutocapitalization(.words)
-                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                    .frame(minHeight: 56)
-                    .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.centraliaDivider, lineWidth: 1)
+                    TextField("Folder name", text: $folderName)
+                        .font(.body)
+                        .focused($folderNameIsFocused)
+                        .submitLabel(.done)
+                        .textInputAutocapitalization(.words)
+                        .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                        .frame(minHeight: 56)
+                        .background(
+                            Color.centraliaSurface,
+                            in: RoundedRectangle(cornerRadius: 16)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.centraliaDivider, lineWidth: 1)
+                        }
+                        .onSubmit(save)
+                        .accessibilityIdentifier("newFolderNameField")
+
+                    Text("Icon")
+                        .font(.headline)
+                        .padding(.top, CentraliaTheme.Spacing.small)
+
+                    FolderSymbolPicker(selection: $selectedSymbol)
+
+                    if let message = viewModel.failureMessage {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .accessibilityLabel("Error: \(message)")
                     }
-                    .onSubmit(save)
-                    .accessibilityIdentifier("newFolderNameField")
-
-                if let message = viewModel.failureMessage {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .accessibilityLabel("Error: \(message)")
                 }
-
-                Spacer()
+                .padding(CentraliaTheme.Spacing.medium)
             }
-            .padding(CentraliaTheme.Spacing.medium)
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.centraliaCanvas.ignoresSafeArea())
             .navigationTitle("New Folder")
             .navigationBarTitleDisplayMode(.inline)
@@ -326,12 +349,15 @@ private struct NewFolderSheet: View {
                 viewModel.dismissFailure()
             }
         }
-        .presentationDetents([.height(300)])
+        .presentationDetents([.height(500), .large])
     }
 
     private func save() {
         Task {
-            guard await viewModel.createFolder(named: folderName) != nil else { return }
+            guard await viewModel.createFolder(
+                named: folderName,
+                symbol: selectedSymbol
+            ) != nil else { return }
             dismiss()
         }
     }

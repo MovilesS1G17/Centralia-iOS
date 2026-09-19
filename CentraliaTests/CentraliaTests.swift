@@ -392,10 +392,14 @@ struct CentraliaTests {
         let store = MockDataStore(directoryURL: directory)
         let filename = "save-repository-test.json"
         let repository = MockLibraryRepository(store: store, filename: filename)
-        let folder = try await repository.createFolder(named: "Motion")
+        let folder = try await repository.createFolder(
+            named: "Motion",
+            symbolName: FolderSymbol.lightbulb.rawValue
+        )
 
         let reloadedRepository = MockLibraryRepository(store: store, filename: filename)
         #expect(try await reloadedRepository.folders().contains(folder))
+        #expect(folder.symbolName == FolderSymbol.lightbulb.rawValue)
 
         let video = VideoItem(
             id: UUID(),
@@ -475,6 +479,32 @@ struct CentraliaTests {
         #expect(
             try await repository.videos().first { $0.id == savedInFolder.id }?.folderID == nil
         )
+    }
+
+    @Test func foldersSearchFiltersOnlyFolderNamesInRealTime() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "folders-search-test.json"
+        )
+        let viewModel = FoldersViewModel(
+            videoRepository: repository,
+            folderRepository: repository
+        )
+
+        await viewModel.load()
+        viewModel.query = "des"
+
+        #expect(viewModel.filteredFolders.map(\.name) == ["Design"])
+
+        viewModel.query = "  RECIPES  "
+        #expect(viewModel.filteredFolders.map(\.name) == ["Recipes"])
+
+        viewModel.query = ""
+        #expect(viewModel.filteredFolders.count == viewModel.folders.count)
     }
 
     @Test func folderDetailScopesSearchFiltersAndSortToTheCurrentFolder() async throws {

@@ -39,11 +39,16 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
         try await store.save(value, to: filename)
     }
 
-    func createFolder(named name: String) async throws -> LibraryFolder {
+    func createFolder(named name: String, symbolName: String) async throws -> LibraryFolder {
         var value = try await snapshot()
         let trimmedName = try validatedFolderName(name, excluding: nil, from: value.folders)
+        let validatedSymbol = FolderSymbol(rawValue: symbolName) ?? .folder
 
-        let folder = LibraryFolder(id: UUID(), name: trimmedName, symbolName: "folder")
+        let folder = LibraryFolder(
+            id: UUID(),
+            name: trimmedName,
+            symbolName: validatedSymbol.rawValue
+        )
         value.folders.append(folder)
         try await store.save(value, to: filename)
         return folder

@@ -61,14 +61,17 @@ final class FoldersViewModel {
         await load()
     }
 
-    func createFolder(named name: String) async -> LibraryFolder? {
+    func createFolder(named name: String, symbol: FolderSymbol) async -> LibraryFolder? {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             failureMessage = FolderRepositoryError.emptyName.localizedDescription
             return nil
         }
 
         do {
-            let folder = try await folderRepository.createFolder(named: name)
+            let folder = try await folderRepository.createFolder(
+                named: name,
+                symbolName: symbol.rawValue
+            )
             folders.append(folder)
             folders.sort {
                 $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending

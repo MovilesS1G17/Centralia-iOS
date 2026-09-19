@@ -131,6 +131,7 @@ struct SaveFolderPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: SaveVideoViewModel
     @State private var newFolderName = ""
+    @State private var selectedFolderSymbol = FolderSymbol.folder
     @FocusState private var newFolderIsFocused: Bool
 
     var body: some View {
@@ -154,6 +155,8 @@ struct SaveFolderPickerSheet: View {
                         .submitLabel(.done)
                         .onSubmit(createFolder)
                         .accessibilityIdentifier("newFolderNameField")
+
+                    FolderSymbolPicker(selection: $selectedFolderSymbol)
 
                     Button("Create and Select", systemImage: "folder.badge.plus") {
                         createFolder()
@@ -208,7 +211,10 @@ struct SaveFolderPickerSheet: View {
 
     private func createFolder() {
         Task {
-            guard await viewModel.createFolder(named: newFolderName) != nil else { return }
+            guard await viewModel.createFolder(
+                named: newFolderName,
+                symbol: selectedFolderSymbol
+            ) != nil else { return }
             dismiss()
         }
     }

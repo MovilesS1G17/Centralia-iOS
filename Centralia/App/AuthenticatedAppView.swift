@@ -40,8 +40,7 @@ struct AuthenticatedAppView: View {
             Tab("Folders", systemImage: "folder", value: AppTab.folders) {
                 FoldersView(
                     videoRepository: videoRepository,
-                    folderRepository: folderRepository,
-                    selectedTab: $selectedTab
+                    folderRepository: folderRepository
                 )
                 .id(libraryRevision)
             }

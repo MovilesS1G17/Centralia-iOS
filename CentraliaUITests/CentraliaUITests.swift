@@ -216,12 +216,27 @@ final class CentraliaUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Folders"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["unorganizedCollection"].exists)
 
+        let foldersSearchField = app.textFields["foldersSearchField"]
+        XCTAssertTrue(foldersSearchField.waitForExistence(timeout: 2))
+        foldersSearchField.tap()
+        foldersSearchField.typeText("Design")
+        XCTAssertTrue(
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Design'"))
+                .firstMatch.waitForExistence(timeout: 2)
+        )
+        XCTAssertFalse(
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Recipes'"))
+                .firstMatch.exists
+        )
+        app.buttons["clearFoldersSearch"].tap()
+
         let folderName = "UI Folder \(UUID().uuidString.prefix(5))"
         app.buttons["newFolderButton"].tap()
         let folderField = app.textFields["newFolderNameField"]
         XCTAssertTrue(folderField.waitForExistence(timeout: 2))
         folderField.tap()
         folderField.typeText(folderName)
+        app.buttons["folderSymbol.lightbulb"].tap()
         app.buttons["saveNewFolderButton"].tap()
 
         let newFolder = app.buttons.matching(
