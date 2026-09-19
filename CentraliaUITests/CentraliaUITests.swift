@@ -303,6 +303,41 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testSmartOrganizationSkipKeepsTheVideoUnorganized() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        app.tabBars.buttons["Folders"].tap()
+
+        let unorganized = app.buttons["unorganizedCollection"]
+        XCTAssertTrue(unorganized.waitForExistence(timeout: 3))
+        unorganized.tap()
+
+        XCTAssertTrue(app.staticTexts["Organize"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.tabBars.buttons["Folders"].exists)
+        let pager = app.descendants(matching: .any)["smartOrganizationPager"]
+        let pageIndicator = app.descendants(matching: .any)["smartOrganizationPageIndicator"]
+        XCTAssertTrue(pager.waitForExistence(timeout: 5))
+        XCTAssertTrue(pageIndicator.exists)
+
+        let count = app.staticTexts["smartOrganizationCount"]
+        XCTAssertTrue(count.exists)
+        let countBeforeSkip = count.label
+
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "Screen 10 - Smart Organization"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        let skip = app.buttons["Skip"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 2))
+        skip.tap()
+
+        XCTAssertEqual(count.label, countBeforeSkip)
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()

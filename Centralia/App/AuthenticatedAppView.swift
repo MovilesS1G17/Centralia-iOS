@@ -11,6 +11,7 @@ struct AuthenticatedAppView: View {
     @State private var previousTab: AppTab = .library
     @State private var presentsSave = false
     @State private var libraryRevision = 0
+    @State private var foldersRevision = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -40,9 +41,13 @@ struct AuthenticatedAppView: View {
             Tab("Folders", systemImage: "folder", value: AppTab.folders) {
                 FoldersView(
                     videoRepository: videoRepository,
-                    folderRepository: folderRepository
+                    folderRepository: folderRepository,
+                    suggestionPipeline: videoImportPipeline,
+                    libraryChanged: {
+                        libraryRevision += 1
+                    }
                 )
-                .id(libraryRevision)
+                .id(foldersRevision)
             }
 
             Tab("Profile", systemImage: "person", value: AppTab.profile) {
@@ -73,6 +78,7 @@ struct AuthenticatedAppView: View {
                 folderRepository: folderRepository
             ) {
                 libraryRevision += 1
+                foldersRevision += 1
             }
         }
     }

@@ -555,4 +555,119 @@ struct CentraliaTests {
             "Centering clay on the wheel"
         ])
     }
+
+    @Test func smartOrganizationUsesThePersistedFolderIconAndAcceptMovesTheVideo() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "smart-organization-accept-test.json"
+        )
+        let viewModel = SmartOrganizationViewModel(
+            videoRepository: repository,
+            folderRepository: repository,
+            suggestionPipeline: MockVideoImportPipeline(delay: .zero)
+        )
+
+        await viewModel.load()
+
+        let suggestion = try #require(viewModel.suggestions.first)
+        let persistedFolder = try #require(
+            try await repository.folders().first { $0.id == suggestion.folder.id }
+        )
+        #expect(suggestion.folder.symbolName == persistedFolder.symbolName)
+        #expect(viewModel.unorganizedCount == 1)
+
+        #expect(await viewModel.accept(suggestion))
+
+        let persistedVideo = try #require(
+            try await repository.videos().first { $0.id == suggestion.video.id }
+        )
+        #expect(persistedVideo.folderID == suggestion.folder.id)
+        #expect(viewModel.unorganizedCount == 0)
+        #expect(viewModel.suggestions.isEmpty)
+    }
+
+    @Test func smartOrganizationSkipDismissesTheSuggestionWithoutMovingTheVideo() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "smart-organization-skip-test.json"
+        )
+        let viewModel = SmartOrganizationViewModel(
+            videoRepository: repository,
+            folderRepository: repository,
+            suggestionPipeline: MockVideoImportPipeline(delay: .zero)
+        )
+
+        await viewModel.load()
+        let suggestion = try #require(viewModel.suggestions.first)
+
+        viewModel.skip(suggestion)
+
+        let persistedVideo = try #require(
+            try await repository.videos().first { $0.id == suggestion.video.id }
+        )
+        #expect(persistedVideo.folderID == nil)
+        #expect(viewModel.unorganizedCount == 1)
+        #expect(viewModel.suggestions.isEmpty)
+    }
+
+    @Test func smartOrganizationSelectionTracksSwipedSuggestionsAndAdvancesAfterSkip() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let repository = MockLibraryRepository(
+            store: MockDataStore(directoryURL: directory),
+            filename: "smart-organization-paging-test.json"
+        )
+        let baseDate = Date(timeIntervalSince1970: 1_789_166_400)
+
+        for index in 1...2 {
+            try await repository.saveVideo(
+                VideoItem(
+                    id: UUID(),
+                    sourceURL: URL(string: "https://www.tiktok.com/@centralia/video/paging-\(index)")!,
+                    platform: .tiktok,
+                    creator: "@centralia",
+                    durationSeconds: 20 + index,
+                    sourceCaption: nil,
+                    transcript: nil,
+                    extractedOnScreenText: nil,
+                    generatedSummary: "Paging suggestion \(index)",
+                    customTitle: nil,
+                    folderID: nil,
+                    tags: ["design"],
+                    note: nil,
+                    savedAt: baseDate.addingTimeInterval(Double(index)),
+                    analysisStatus: .completed
+                )
+            )
+        }
+
+        let viewModel = SmartOrganizationViewModel(
+            videoRepository: repository,
+            folderRepository: repository,
+            suggestionPipeline: MockVideoImportPipeline(delay: .zero)
+        )
+        await viewModel.load()
+
+        #expect(viewModel.suggestions.count == 3)
+        let secondSuggestion = viewModel.suggestions[1]
+        viewModel.selectedSuggestionID = secondSuggestion.id
+        #expect(viewModel.selectedSuggestion?.id == secondSuggestion.id)
+
+        viewModel.skip(secondSuggestion)
+
+        #expect(viewModel.suggestions.count == 2)
+        #expect(viewModel.suggestions.contains { $0.id == secondSuggestion.id } == false)
+        #expect(viewModel.selectedSuggestionID == viewModel.suggestions[1].id)
+        #expect(viewModel.unorganizedCount == 3)
+    }
 }

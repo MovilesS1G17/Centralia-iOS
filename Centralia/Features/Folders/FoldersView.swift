@@ -13,10 +13,14 @@ struct FoldersView: View {
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let suggestionPipeline: any VideoImportPipeline
+    private let libraryChanged: () -> Void
 
     init(
         videoRepository: any VideoItemRepository,
-        folderRepository: any FolderRepository
+        folderRepository: any FolderRepository,
+        suggestionPipeline: any VideoImportPipeline,
+        libraryChanged: @escaping () -> Void = {}
     ) {
         _viewModel = State(
             initialValue: FoldersViewModel(
@@ -26,6 +30,8 @@ struct FoldersView: View {
         )
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.suggestionPipeline = suggestionPipeline
+        self.libraryChanged = libraryChanged
     }
 
     var body: some View {
@@ -60,13 +66,15 @@ struct FoldersView: View {
                     .toolbar(.hidden, for: .tabBar)
 
                 case .smartOrganization:
-                    UpcomingFeatureView(
-                        title: "Smart Organization",
-                        screenNumber: 10,
-                        systemImage: "sparkles",
-                        detail: "Screen 10 will help organize the (viewModel.unorganizedCount) unorganized shorts."
+                    SmartOrganizationView(
+                        videoRepository: videoRepository,
+                        folderRepository: folderRepository,
+                        suggestionPipeline: suggestionPipeline,
+                        libraryChanged: {
+                            Task { await viewModel.applyFolderChange() }
+                            libraryChanged()
+                        }
                     )
-                    .toolbar(.hidden, for: .tabBar)
                 }
             }
             .task {
