@@ -26,6 +26,9 @@ playground.xcworkspace
 *.xcresult
 *.profraw
 
+# Accidental workspace archives
+/Mobile Apps Development.zip
+
 # Signing credentials and provisioning profiles
 *.mobileprovision
 *.p12

@@ -128,20 +128,12 @@ struct CentraliaSecondaryButton<Icon: View>: View {
 
 struct GoogleMark: View {
     var body: some View {
-        Text("G")
-            .font(.system(size: 21, weight: .bold, design: .rounded))
-            .foregroundStyle(
-                AngularGradient(
-                    colors: [
-                        Color(red: 0.26, green: 0.52, blue: 0.96),
-                        Color(red: 0.92, green: 0.26, blue: 0.21),
-                        Color(red: 0.98, green: 0.74, blue: 0.02),
-                        Color(red: 0.20, green: 0.66, blue: 0.33),
-                        Color(red: 0.26, green: 0.52, blue: 0.96)
-                    ],
-                    center: .center
-                )
-            )
+        Image("GoogleMark")
+            .resizable()
+            .renderingMode(.original)
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: 20, height: 20)
             .accessibilityHidden(true)
     }
 }
