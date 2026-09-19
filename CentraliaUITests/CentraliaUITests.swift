@@ -245,12 +245,61 @@ final class CentraliaUITests: XCTestCase {
         XCTAssertTrue(newFolder.waitForExistence(timeout: 3))
         newFolder.tap()
         XCTAssertTrue(app.textFields["folderDetailSearchField"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["folderDetailFilters"].exists)
+        XCTAssertTrue(app.buttons["folderDetailSort"].exists)
+        XCTAssertTrue(app.buttons["folderDetailTags"].exists)
 
         let foldersScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         foldersScreenshot.name = "Screens 8 and 9 - Folders and Folder Detail"
         foldersScreenshot.lifetime = .keepAlways
         add(foldersScreenshot)
+    }
+
+    @MainActor
+    func testFolderDetailSearchSortAndTagsStayInsideCurrentFolder() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        app.tabBars.buttons["Folders"].tap()
+
+        let designFolder = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH 'Design'")
+        ).firstMatch
+        XCTAssertTrue(designFolder.waitForExistence(timeout: 3))
+        designFolder.tap()
+
+        let searchField = app.textFields["folderDetailSearchField"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3))
+        searchField.tap()
+        searchField.typeText("ceramics")
+
+        XCTAssertTrue(
+            app.staticTexts["Centering clay on the wheel"].waitForExistence(timeout: 2)
+        )
+        XCTAssertFalse(app.staticTexts["Three color rules"].exists)
+
+        app.buttons["folderDetailClearSearch"].tap()
+        app.buttons["folderDetailSort"].tap()
+        XCTAssertTrue(app.buttons["Alphabetical"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Date Saved"].exists)
+        app.buttons["Alphabetical"].tap()
+
+        app.buttons["folderDetailTags"].tap()
+        XCTAssertTrue(app.navigationBars["Filter by Tags"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["color"].exists)
+        XCTAssertTrue(app.buttons["ceramics"].exists)
+        XCTAssertFalse(app.buttons["studio"].exists)
+
+        app.buttons["color"].tap()
+        app.navigationBars["Filter by Tags"].buttons["Done"].tap()
+
+        XCTAssertTrue(app.staticTexts["Three color rules"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.staticTexts["Centering clay on the wheel"].exists)
+
+        let detailScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        detailScreenshot.name = "Screen 9 - Folder Detail"
+        detailScreenshot.lifetime = .keepAlways
+        add(detailScreenshot)
     }
 
     @MainActor

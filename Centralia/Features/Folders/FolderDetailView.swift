@@ -8,7 +8,7 @@ struct FolderDetailView: View {
     @State private var movingVideo: VideoItem?
     @State private var pendingDeletion: VideoItem?
     @State private var showsRenameFolder = false
-    @State private var showsFilters = false
+    @State private var showsTagFilter = false
     @State private var showsDeleteFolderConfirmation = false
     @FocusState private var searchIsFocused: Bool
 
@@ -85,8 +85,8 @@ struct FolderDetailView: View {
                 folderChanged()
             }
         }
-        .sheet(isPresented: $showsFilters) {
-            FolderFiltersSheet(viewModel: viewModel)
+        .sheet(isPresented: $showsTagFilter) {
+            FolderTagsSheet(viewModel: viewModel)
         }
         .confirmationDialog(
             "Remove this short from your library?",
@@ -200,11 +200,19 @@ struct FolderDetailView: View {
                 }
                 .labelStyle(.iconOnly)
                 .foregroundStyle(Color.centraliaSecondaryText)
+                .accessibilityIdentifier("folderDetailClearSearch")
             }
         }
         .padding(.horizontal, CentraliaTheme.Spacing.medium)
         .frame(maxWidth: .infinity, minHeight: 52)
-        .background(Color.centraliaCanvas, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(
+                    searchIsFocused ? Color.centraliaInk : Color.centraliaDivider,
+                    lineWidth: searchIsFocused ? 2 : 1
+                )
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -219,10 +227,43 @@ struct FolderDetailView: View {
                         viewModel.selectedSourceFilter = filter
                     }
                 }
+
+                Button {
+                    showsTagFilter = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(tagFilterTitle)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(
+                        viewModel.selectedTags.isEmpty
+                            ? Color.centraliaInk
+                            : Color.centraliaCanvas
+                    )
+                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                    .frame(minHeight: 44)
+                    .background(
+                        viewModel.selectedTags.isEmpty
+                            ? Color.centraliaSoftSurface
+                            : Color.centraliaInk,
+                        in: Capsule()
+                    )
+                    .overlay {
+                        if viewModel.selectedTags.isEmpty {
+                            Capsule()
+                                .stroke(Color.centraliaDivider, lineWidth: 1)
+                        }
+                    }
+                }
+                .buttonStyle(CentraliaPressStyle())
+                .accessibilityLabel(tagFilterAccessibilityLabel)
+                .accessibilityIdentifier("folderDetailTags")
             }
         }
         .scrollIndicators(.hidden)
-        .accessibilityLabel("Filter folder by platform")
+        .accessibilityLabel("Filter folder by platform or tags")
     }
 
     @ViewBuilder
@@ -289,15 +330,6 @@ struct FolderDetailView: View {
             }
             .accessibilityIdentifier("folderDetailSort")
 
-            Text("·")
-                .font(.headline)
-
-            Button("Filters") {
-                showsFilters = true
-            }
-            .font(.headline)
-            .frame(minHeight: 44)
-            .accessibilityIdentifier("folderDetailFilters")
         }
     }
 
@@ -334,7 +366,16 @@ struct FolderDetailView: View {
         !viewModel.query.isEmpty
             || viewModel.selectedSourceFilter != .all
             || !viewModel.selectedTags.isEmpty
-            || viewModel.selectedDateFilter != .anyTime
+    }
+
+    private var tagFilterTitle: String {
+        let count = viewModel.selectedTags.count
+        return count == 0 ? "Tags" : "Tags (\(count))"
+    }
+
+    private var tagFilterAccessibilityLabel: String {
+        let count = viewModel.selectedTags.count
+        return count == 0 ? "Filter by tags" : "Filter by tags, \(count) selected"
     }
 
     private var deletionDialogBinding: Binding<Bool> {
@@ -359,7 +400,6 @@ struct FolderDetailView: View {
         viewModel.query = ""
         viewModel.selectedSourceFilter = .all
         viewModel.selectedTags = []
-        viewModel.selectedDateFilter = .anyTime
     }
 }
 
@@ -370,7 +410,7 @@ private struct FolderDetailVideoCard: View {
     let requestMove: () -> Void
     let requestDelete: () -> Void
 
-    @ScaledMetric(relativeTo: .body) private var cardHeight: CGFloat = 270
+    private let cardHeight: CGFloat = 270
 
     private var cardColor: Color {
         [
@@ -462,6 +502,7 @@ private struct FolderDetailVideoCard: View {
         .frame(height: cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("folderVideoCard.\(video.id.uuidString)")
     }
 }
 
@@ -533,14 +574,14 @@ private struct FolderRenameSheet: View {
     }
 }
 
-private struct FolderFiltersSheet: View {
+private struct FolderTagsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: FolderDetailViewModel
 
     var body: some View {
         NavigationStack {
             List {
-                Section("Tags") {
+                Section("Tags in \(viewModel.folder.name)") {
                     if viewModel.availableTags.isEmpty {
                         Text("No tags in this folder yet.")
                             .foregroundStyle(Color.centraliaSecondaryText)
@@ -561,26 +602,15 @@ private struct FolderFiltersSheet: View {
                         }
                     }
                 }
-
-                Section("Date saved") {
-                    Picker("Date saved", selection: $viewModel.selectedDateFilter) {
-                        ForEach(FolderDateFilter.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                }
             }
             .scrollContentBackground(.hidden)
             .background(Color.centraliaCanvas)
-            .navigationTitle("Filters")
+            .navigationTitle("Filter by Tags")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Reset") {
                         viewModel.selectedTags = []
-                        viewModel.selectedDateFilter = .anyTime
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {

@@ -535,10 +535,24 @@ struct CentraliaTests {
         viewModel.selectedSourceFilter = .platform(.instagramReel)
         #expect(viewModel.filteredVideos.count == 2)
 
-        viewModel.sort = .title
+        viewModel.sort = .alphabetical
         #expect(viewModel.filteredVideos.map(\.displayTitle) == [
             "Centering clay on the wheel",
             "Three color rules"
+        ])
+
+        #expect(viewModel.availableTags == [
+            "ceramics", "color", "craft", "design", "tutorial", "visual identity"
+        ])
+
+        viewModel.selectedTags = ["color"]
+        #expect(viewModel.filteredVideos.map(\.displayTitle) == ["Three color rules"])
+
+        viewModel.selectedTags = []
+        viewModel.sort = .dateSaved
+        #expect(viewModel.filteredVideos.map(\.displayTitle) == [
+            "Three color rules",
+            "Centering clay on the wheel"
         ])
     }
 }

@@ -2,44 +2,15 @@ import Foundation
 import Observation
 
 enum FolderSort: String, CaseIterable, Identifiable {
-    case recentlySaved
-    case oldestSaved
-    case title
+    case dateSaved
+    case alphabetical
 
     var id: Self { self }
 
     var title: String {
         switch self {
-        case .recentlySaved: "Recently Saved"
-        case .oldestSaved: "Oldest Saved"
-        case .title: "Title"
-        }
-    }
-}
-
-enum FolderDateFilter: String, CaseIterable, Identifiable {
-    case anyTime
-    case last7Days
-    case last30Days
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .anyTime: "Any time"
-        case .last7Days: "Last 7 days"
-        case .last30Days: "Last 30 days"
-        }
-    }
-
-    func includes(_ video: VideoItem, relativeTo date: Date = .now) -> Bool {
-        switch self {
-        case .anyTime:
-            true
-        case .last7Days:
-            video.savedAt >= Calendar.current.date(byAdding: .day, value: -7, to: date) ?? .distantPast
-        case .last30Days:
-            video.savedAt >= Calendar.current.date(byAdding: .day, value: -30, to: date) ?? .distantPast
+        case .dateSaved: "Date Saved"
+        case .alphabetical: "Alphabetical"
         }
     }
 }
@@ -66,8 +37,7 @@ final class FolderDetailViewModel {
     var query = ""
     var selectedSourceFilter: LibrarySourceFilter = .all
     var selectedTags: Set<String> = []
-    var selectedDateFilter: FolderDateFilter = .anyTime
-    var sort: FolderSort = .recentlySaved
+    var sort: FolderSort = .dateSaved
 
     var availableTags: [String] {
         Array(Set(videos.flatMap(\.tags))).sorted {
@@ -79,7 +49,6 @@ final class FolderDetailViewModel {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let filtered = videos.filter { video in
             selectedSourceFilter.includes(video)
-                && selectedDateFilter.includes(video)
                 && selectedTags.allSatisfy { selectedTag in
                     video.tags.contains { $0.localizedCaseInsensitiveCompare(selectedTag) == .orderedSame }
                 }
@@ -87,11 +56,9 @@ final class FolderDetailViewModel {
         }
 
         switch sort {
-        case .recentlySaved:
+        case .dateSaved:
             return filtered.sorted { $0.savedAt > $1.savedAt }
-        case .oldestSaved:
-            return filtered.sorted { $0.savedAt < $1.savedAt }
-        case .title:
+        case .alphabetical:
             return filtered.sorted {
                 $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending
             }
@@ -117,6 +84,7 @@ final class FolderDetailViewModel {
             async let loadedFolders = folderRepository.folders()
             videos = try await loadedVideos.filter { $0.folderID == folder.id }
             folders = try await loadedFolders
+            reconcileSelectedTags()
             state = .loaded
         } catch {
             state = .failed(error.localizedDescription)
@@ -132,6 +100,7 @@ final class FolderDetailViewModel {
         do {
             try await videoRepository.moveVideo(id: video.id, to: folderID)
             videos.removeAll { $0.id == video.id }
+            reconcileSelectedTags()
         } catch {
             failureMessage = error.localizedDescription
         }
@@ -141,6 +110,7 @@ final class FolderDetailViewModel {
         do {
             try await videoRepository.deleteVideo(id: video.id)
             videos.removeAll { $0.id == video.id }
+            reconcileSelectedTags()
             recentlyDeletedVideo = video
         } catch {
             failureMessage = error.localizedDescription
@@ -153,6 +123,7 @@ final class FolderDetailViewModel {
         do {
             try await videoRepository.restoreVideo(video)
             videos.append(video)
+            reconcileSelectedTags()
             recentlyDeletedVideo = nil
         } catch {
             failureMessage = error.localizedDescription
@@ -173,10 +144,12 @@ final class FolderDetailViewModel {
         } else {
             videos.removeAll { $0.id == video.id }
         }
+        reconcileSelectedTags()
     }
 
     func registerDeleted(_ video: VideoItem) {
         videos.removeAll { $0.id == video.id }
+        reconcileSelectedTags()
         recentlyDeletedVideo = video
     }
 
@@ -209,6 +182,10 @@ final class FolderDetailViewModel {
         video.displayTitle.localizedCaseInsensitiveContains(query)
             || video.creator.localizedCaseInsensitiveContains(query)
             || video.tags.contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    private func reconcileSelectedTags() {
+        selectedTags.formIntersection(availableTags)
     }
 }
 
