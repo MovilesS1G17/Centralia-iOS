@@ -46,4 +46,27 @@ final class DependencyContainer {
             videoImportPipeline: MockVideoImportPipeline()
         )
     }
+
+    static func live() -> DependencyContainer {
+        let store = MockDataStore()
+        let libraryRepository = MockLibraryRepository(store: store)
+        let userRepository = MockUserRepository(store: store)
+
+        return DependencyContainer(
+            authenticationRepository: APIAuthenticationRepository(
+                configuration: .current
+            ),
+            videoItemRepository: libraryRepository,
+            folderRepository: libraryRepository,
+            searchHistoryRepository: MockSearchHistoryRepository(store: store),
+            userRepository: userRepository,
+            libraryExportService: JSONLibraryExportService(
+                videoRepository: libraryRepository,
+                folderRepository: libraryRepository,
+                userRepository: userRepository
+            ),
+            videoImportPipeline: MockVideoImportPipeline(),
+            session: AppSession(isRestoringSession: true)
+        )
+    }
 }

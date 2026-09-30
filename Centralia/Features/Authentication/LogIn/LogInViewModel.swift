@@ -37,6 +37,9 @@ final class LogInViewModel {
             )
         } catch is CancellationError {
             return nil
+        } catch let error as AuthenticationError {
+            present(error)
+            return nil
         } catch {
             failureMessage = error.localizedDescription
             return nil
@@ -54,6 +57,9 @@ final class LogInViewModel {
             return try await repository.authenticate(with: provider)
         } catch is CancellationError {
             return nil
+        } catch let error as AuthenticationError {
+            present(error)
+            return nil
         } catch {
             failureMessage = error.localizedDescription
             return nil
@@ -65,5 +71,21 @@ final class LogInViewModel {
         emailError = AuthenticationValidation.emailError(for: email)
         passwordError = password.isEmpty ? "Enter your password." : nil
         return emailError == nil && passwordError == nil
+    }
+
+    private func present(_ error: AuthenticationError) {
+        guard case let .validation(field, message) = error else {
+            failureMessage = error.localizedDescription
+            return
+        }
+
+        switch field {
+        case .email:
+            emailError = message
+        case .password:
+            passwordError = message
+        case .displayName, .unknown:
+            failureMessage = message
+        }
     }
 }

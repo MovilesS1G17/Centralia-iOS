@@ -2,18 +2,84 @@ import Foundation
 import Testing
 @testable import Centralia
 
+@MainActor
+private struct FailingAuthenticationRepository: AuthenticationRepository {
+    let error: AuthenticationError
+
+    func createAccount(
+        displayName: String,
+        email: String,
+        password: String
+    ) async throws -> AuthenticatedUser {
+        throw error
+    }
+
+    func logIn(email: String, password: String) async throws -> AuthenticatedUser {
+        throw error
+    }
+
+    func restoreSession() async throws -> AuthenticatedUser? {
+        nil
+    }
+
+    func authenticate(with provider: AuthenticationProvider) async throws -> AuthenticatedUser {
+        throw error
+    }
+
+    func requestPasswordReset(for email: String) async throws {
+        throw error
+    }
+
+    func signOut() async throws {
+        throw error
+    }
+}
+
+@MainActor
+private struct RestoringAuthenticationRepository: AuthenticationRepository {
+    let user: AuthenticatedUser
+
+    func createAccount(
+        displayName: String,
+        email: String,
+        password: String
+    ) async throws -> AuthenticatedUser {
+        user
+    }
+
+    func logIn(email: String, password: String) async throws -> AuthenticatedUser {
+        user
+    }
+
+    func restoreSession() async throws -> AuthenticatedUser? {
+        user
+    }
+
+    func authenticate(with provider: AuthenticationProvider) async throws -> AuthenticatedUser {
+        user
+    }
+
+    func requestPasswordReset(for email: String) async throws {}
+
+    func signOut() async throws {}
+}
+
+@MainActor
 struct CentraliaTests {
     @Test func authenticationValidation() {
         #expect(AuthenticationValidation.emailError(for: "person@example.com") == nil)
         #expect(AuthenticationValidation.emailError(for: "not-an-email") != nil)
         #expect(AuthenticationValidation.passwordError(for: "12345678") == nil)
         #expect(AuthenticationValidation.passwordError(for: "short") != nil)
+        #expect(AuthenticationValidation.displayNameError(for: "Centralia User") == nil)
+        #expect(AuthenticationValidation.displayNameError(for: "   ") == "Enter your name.")
     }
 
     @Test func signUpRejectsMismatchedPasswordsBeforeCallingRepository() async {
         let viewModel = SignUpViewModel(
             repository: MockAuthenticationRepository(delay: .zero)
         )
+        viewModel.displayName = "Centralia User"
         viewModel.email = "person@example.com"
         viewModel.password = "password-one"
         viewModel.passwordConfirmation = "password-two"
@@ -23,6 +89,40 @@ struct CentraliaTests {
         #expect(user == nil)
         #expect(viewModel.confirmationError == "Passwords do not match.")
         #expect(viewModel.isSubmittingEmail == false)
+    }
+
+    @Test func signUpUsesTheEnteredNameForTheAuthenticatedUser() async {
+        let viewModel = SignUpViewModel(
+            repository: MockAuthenticationRepository(delay: .zero)
+        )
+        viewModel.displayName = "  David Caro  "
+        viewModel.email = "david@example.com"
+        viewModel.password = "valid-password"
+        viewModel.passwordConfirmation = "valid-password"
+
+        let user = await viewModel.createAccount()
+
+        #expect(user?.displayName == "David Caro")
+    }
+
+    @Test func signUpShowsServerValidationOnTheMatchingField() async {
+        let repository = FailingAuthenticationRepository(
+            error: .validation(
+                field: .password,
+                message: "Password must be no more than 128 characters long."
+            )
+        )
+        let viewModel = SignUpViewModel(repository: repository)
+        viewModel.displayName = "Centralia User"
+        viewModel.email = "person@example.com"
+        viewModel.password = "a-valid-password"
+        viewModel.passwordConfirmation = "a-valid-password"
+
+        let user = await viewModel.createAccount()
+
+        #expect(user == nil)
+        #expect(viewModel.passwordError == "Password must be no more than 128 characters long.")
+        #expect(viewModel.failureMessage == nil)
     }
 
     @Test func logInPreservesInputAndExposesRecoverableFailure() async {
@@ -48,6 +148,22 @@ struct CentraliaTests {
         session.completeAuthentication(with: user)
 
         #expect(session.phase == .authenticated(user))
+    }
+
+    @Test func appSessionRestoresAnAuthenticatedUser() async {
+        let user = AuthenticatedUser(
+            id: UUID(),
+            displayName: "Centralia User",
+            email: "person@example.com"
+        )
+        let session = AppSession(isRestoringSession: true)
+
+        await session.restoreAuthentication(
+            using: RestoringAuthenticationRepository(user: user)
+        )
+
+        #expect(session.phase == .authenticated(user))
+        #expect(session.isRestoringSession == false)
     }
 
     @Test func socialAuthenticationCancellationIsRecoverable() async {

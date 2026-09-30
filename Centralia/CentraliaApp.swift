@@ -9,7 +9,7 @@ import SwiftUI
 
 @main
 struct CentraliaApp: App {
-    @State private var container = DependencyContainer.mock()
+    @State private var container = DependencyContainer.live()
 
     var body: some Scene {
         WindowGroup {

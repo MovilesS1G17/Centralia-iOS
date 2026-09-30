@@ -11,9 +11,11 @@ final class SignUpViewModel {
     private let repository: any AuthenticationRepository
 
     var mode: Mode = .options
+    var displayName = ""
     var email = ""
     var password = ""
     var passwordConfirmation = ""
+    var displayNameError: String?
     var emailError: String?
     var passwordError: String?
     var confirmationError: String?
@@ -50,10 +52,14 @@ final class SignUpViewModel {
 
         do {
             return try await repository.createAccount(
+                displayName: AuthenticationValidation.normalizedDisplayName(displayName),
                 email: AuthenticationValidation.normalizedEmail(email),
                 password: password
             )
         } catch is CancellationError {
+            return nil
+        } catch let error as AuthenticationError {
+            present(error)
             return nil
         } catch {
             failureMessage = error.localizedDescription
@@ -72,6 +78,9 @@ final class SignUpViewModel {
             return try await repository.authenticate(with: provider)
         } catch is CancellationError {
             return nil
+        } catch let error as AuthenticationError {
+            present(error)
+            return nil
         } catch {
             failureMessage = error.localizedDescription
             return nil
@@ -80,9 +89,31 @@ final class SignUpViewModel {
 
     @discardableResult
     private func validateForm() -> Bool {
+        displayNameError = AuthenticationValidation.displayNameError(for: displayName)
         emailError = AuthenticationValidation.emailError(for: email)
         passwordError = AuthenticationValidation.passwordError(for: password)
         confirmationError = password == passwordConfirmation ? nil : "Passwords do not match."
-        return emailError == nil && passwordError == nil && confirmationError == nil
+        return displayNameError == nil
+            && emailError == nil
+            && passwordError == nil
+            && confirmationError == nil
+    }
+
+    private func present(_ error: AuthenticationError) {
+        guard case let .validation(field, message) = error else {
+            failureMessage = error.localizedDescription
+            return
+        }
+
+        switch field {
+        case .email:
+            emailError = message
+        case .password:
+            passwordError = message
+        case .displayName:
+            displayNameError = message
+        case .unknown:
+            failureMessage = message
+        }
     }
 }

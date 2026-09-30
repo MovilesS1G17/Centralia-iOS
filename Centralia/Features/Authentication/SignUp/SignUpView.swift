@@ -111,6 +111,15 @@ struct SignUpView: View {
     private var emailControls: some View {
         VStack(spacing: CentraliaTheme.Spacing.medium) {
             AuthenticationTextField(
+                label: "Name",
+                placeholder: "Your name",
+                text: $viewModel.displayName,
+                errorMessage: viewModel.displayNameError,
+                contentType: .name,
+                usesNameInput: true
+            )
+
+            AuthenticationTextField(
                 label: "Email",
                 placeholder: "you@example.com",
                 text: $viewModel.email,

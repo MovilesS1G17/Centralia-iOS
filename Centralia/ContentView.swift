@@ -12,37 +12,46 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            switch container.session.phase {
-            case .unauthenticated(.signUp):
-                SignUpView(
-                    repository: container.authenticationRepository,
-                    showLogIn: container.session.showLogIn,
-                    completeAuthentication: container.session.completeAuthentication
-                )
+            if container.session.isRestoringSession {
+                ProgressView("Restoring your session…")
+            } else {
+                switch container.session.phase {
+                case .unauthenticated(.signUp):
+                    SignUpView(
+                        repository: container.authenticationRepository,
+                        showLogIn: container.session.showLogIn,
+                        completeAuthentication: container.session.completeAuthentication
+                    )
 
-            case .unauthenticated(.logIn):
-                LogInView(
-                    repository: container.authenticationRepository,
-                    showSignUp: container.session.showSignUp,
-                    completeAuthentication: container.session.completeAuthentication
-                )
+                case .unauthenticated(.logIn):
+                    LogInView(
+                        repository: container.authenticationRepository,
+                        showSignUp: container.session.showSignUp,
+                        completeAuthentication: container.session.completeAuthentication
+                    )
 
-            case let .authenticated(user):
-                AuthenticatedAppView(
-                    user: user,
-                    videoRepository: container.videoItemRepository,
-                    folderRepository: container.folderRepository,
-                    searchHistoryRepository: container.searchHistoryRepository,
-                    userRepository: container.userRepository,
-                    libraryExportService: container.libraryExportService,
-                    authenticationRepository: container.authenticationRepository,
-                    videoImportPipeline: container.videoImportPipeline,
-                    userChanged: container.session.updateAuthenticatedUser,
-                    signedOut: container.session.signOut
-                )
+                case let .authenticated(user):
+                    AuthenticatedAppView(
+                        user: user,
+                        videoRepository: container.videoItemRepository,
+                        folderRepository: container.folderRepository,
+                        searchHistoryRepository: container.searchHistoryRepository,
+                        userRepository: container.userRepository,
+                        libraryExportService: container.libraryExportService,
+                        authenticationRepository: container.authenticationRepository,
+                        videoImportPipeline: container.videoImportPipeline,
+                        userChanged: container.session.updateAuthenticatedUser,
+                        signedOut: container.session.signOut
+                    )
+                }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: container.session.phase)
+        .task {
+            await container.session.restoreAuthentication(
+                using: container.authenticationRepository
+            )
+        }
     }
 }
 

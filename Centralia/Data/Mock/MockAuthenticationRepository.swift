@@ -12,7 +12,11 @@ struct MockAuthenticationRepository: AuthenticationRepository {
         self.providerFailures = providerFailures
     }
 
-    func createAccount(email: String, password: String) async throws -> AuthenticatedUser {
+    func createAccount(
+        displayName: String,
+        email: String,
+        password: String
+    ) async throws -> AuthenticatedUser {
         try await simulateWork()
 
         if email.localizedCaseInsensitiveCompare("existing@example.com") == .orderedSame {
@@ -21,7 +25,7 @@ struct MockAuthenticationRepository: AuthenticationRepository {
 
         return AuthenticatedUser(
             id: deterministicID(for: email),
-            displayName: displayName(from: email),
+            displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
             email: email
         )
     }
@@ -38,6 +42,10 @@ struct MockAuthenticationRepository: AuthenticationRepository {
             displayName: displayName(from: email),
             email: email
         )
+    }
+
+    func restoreSession() async throws -> AuthenticatedUser? {
+        nil
     }
 
     func authenticate(with provider: AuthenticationProvider) async throws -> AuthenticatedUser {

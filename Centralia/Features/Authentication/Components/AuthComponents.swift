@@ -146,6 +146,7 @@ struct AuthenticationTextField: View {
     var contentType: UITextContentType?
     var keyboardType: UIKeyboardType = .default
     var isSecure = false
+    var usesNameInput = false
     var submitLabel: SubmitLabel = .next
 
     @State private var revealsSecureText = false
@@ -165,8 +166,8 @@ struct AuthenticationTextField: View {
                 }
                 .textContentType(contentType)
                 .keyboardType(keyboardType)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .textInputAutocapitalization(usesNameInput ? .words : .never)
+                .autocorrectionDisabled(!usesNameInput)
                 .submitLabel(submitLabel)
 
                 if isSecure {

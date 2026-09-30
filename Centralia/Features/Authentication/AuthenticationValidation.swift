@@ -1,6 +1,10 @@
 import Foundation
 
 enum AuthenticationValidation {
+    static func normalizedDisplayName(_ displayName: String) -> String {
+        displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func normalizedEmail(_ email: String) -> String {
         email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
@@ -22,5 +26,18 @@ enum AuthenticationValidation {
 
     static func passwordError(for password: String) -> String? {
         password.count >= 8 ? nil : "Use at least 8 characters."
+    }
+
+    static func displayNameError(for displayName: String) -> String? {
+        let normalized = normalizedDisplayName(displayName)
+
+        guard !normalized.isEmpty else {
+            return "Enter your name."
+        }
+        guard normalized.count <= 120 else {
+            return "Name must be no more than 120 characters long."
+        }
+
+        return nil
     }
 }
