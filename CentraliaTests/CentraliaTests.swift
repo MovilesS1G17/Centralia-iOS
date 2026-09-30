@@ -22,6 +22,13 @@ private struct FailingAuthenticationRepository: AuthenticationRepository {
         nil
     }
 
+    func updateDisplayName(
+        _: String,
+        for _: AuthenticatedUser
+    ) async throws -> AuthenticatedUser {
+        throw error
+    }
+
     func authenticate(with provider: AuthenticationProvider) async throws -> AuthenticatedUser {
         throw error
     }
@@ -53,6 +60,17 @@ private struct RestoringAuthenticationRepository: AuthenticationRepository {
 
     func restoreSession() async throws -> AuthenticatedUser? {
         user
+    }
+
+    func updateDisplayName(
+        _ displayName: String,
+        for authenticatedUser: AuthenticatedUser
+    ) async throws -> AuthenticatedUser {
+        AuthenticatedUser(
+            id: authenticatedUser.id,
+            displayName: displayName,
+            email: authenticatedUser.email
+        )
     }
 
     func authenticate(with provider: AuthenticationProvider) async throws -> AuthenticatedUser {
@@ -833,7 +851,7 @@ struct CentraliaTests {
         #expect(viewModel.storageUsage.percentage == 48)
     }
 
-    @Test func profileAndNotificationChangesPersistBehindUserRepository() async throws {
+    @Test func profileDisplayNameUpdatesWithoutChangingEmail() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -868,11 +886,12 @@ struct CentraliaTests {
         await viewModel.load()
 
         let updatedUser = await viewModel.updateProfile(
-            displayName: "David Caro",
-            email: "DAVID@EXAMPLE.COM"
+            displayName: "David Caro"
         )
         #expect(updatedUser?.displayName == "David Caro")
-        #expect(updatedUser?.email == "david@example.com")
+        #expect(updatedUser?.email == "demo@centralia.app")
+        #expect(viewModel.profile?.displayName == "David Caro")
+        #expect(viewModel.profile?.email == "demo@centralia.app")
 
         var preferences = viewModel.notificationPreferences
         preferences.productUpdates = true
@@ -884,12 +903,9 @@ struct CentraliaTests {
             filename: "profile-persistence-users.json",
             delay: .zero
         )
-        let persistedProfile = try await reloadedRepository.profile(for: originalUser)
         let persistedPreferences = try await reloadedRepository.notificationPreferences(
             for: originalUser.id
         )
-        #expect(persistedProfile.displayName == "David Caro")
-        #expect(persistedProfile.email == "david@example.com")
         #expect(persistedPreferences.productUpdates)
         #expect(persistedPreferences.weeklyLibrarySummary == false)
     }

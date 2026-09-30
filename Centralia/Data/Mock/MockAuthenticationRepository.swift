@@ -48,6 +48,19 @@ struct MockAuthenticationRepository: AuthenticationRepository {
         nil
     }
 
+    func updateDisplayName(
+        _ displayName: String,
+        for authenticatedUser: AuthenticatedUser
+    ) async throws -> AuthenticatedUser {
+        try await simulateWork()
+
+        return AuthenticatedUser(
+            id: authenticatedUser.id,
+            displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
+            email: authenticatedUser.email
+        )
+    }
+
     func authenticate(with provider: AuthenticationProvider) async throws -> AuthenticatedUser {
         try await simulateWork()
 

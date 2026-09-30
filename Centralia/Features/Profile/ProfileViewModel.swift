@@ -78,23 +78,24 @@ final class ProfileViewModel {
         await load()
     }
 
-    func updateProfile(displayName: String, email: String) async -> AuthenticatedUser? {
+    func updateProfile(displayName: String) async -> AuthenticatedUser? {
         guard let profile, !isUpdatingProfile else { return nil }
         isUpdatingProfile = true
         failureMessage = nil
         defer { isUpdatingProfile = false }
 
         do {
-            let updatedProfile = try await userRepository.updateProfile(
-                UserProfile(
-                    id: profile.id,
-                    displayName: displayName,
-                    email: email,
-                    membershipStatus: profile.membershipStatus
-                )
+            let updatedUser = try await authenticationRepository.updateDisplayName(
+                displayName,
+                for: authenticatedUser
             )
-            self.profile = updatedProfile
-            return updatedProfile.authenticatedUser
+            self.profile = UserProfile(
+                id: updatedUser.id,
+                displayName: updatedUser.displayName,
+                email: updatedUser.email ?? profile.email,
+                membershipStatus: profile.membershipStatus
+            )
+            return updatedUser
         } catch {
             failureMessage = error.localizedDescription
             return nil

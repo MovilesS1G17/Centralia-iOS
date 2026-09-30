@@ -5,6 +5,7 @@ struct APIAuthenticationRepository: AuthenticationRepository {
         case register
         case login
         case currentUser
+        case updateCurrentUser
     }
 
     private struct RegistrationRequest: Encodable {
@@ -22,6 +23,14 @@ struct APIAuthenticationRepository: AuthenticationRepository {
     private struct LoginRequest: Encodable {
         let email: String
         let password: String
+    }
+
+    private struct UpdateDisplayNameRequest: Encodable {
+        let displayName: String
+
+        enum CodingKeys: String, CodingKey {
+            case displayName = "display_name"
+        }
     }
 
     private struct TokenResponse: Decodable {
@@ -136,6 +145,25 @@ struct APIAuthenticationRepository: AuthenticationRepository {
         }
     }
 
+    func updateDisplayName(
+        _ displayName: String,
+        for _: AuthenticatedUser
+    ) async throws -> AuthenticatedUser {
+        guard let accessToken = try tokenStore.accessToken() else {
+            throw AuthenticationError.sessionExpired
+        }
+
+        var request = try jsonRequest(
+            path: "/me",
+            method: "PATCH",
+            body: UpdateDisplayNameRequest(displayName: displayName)
+        )
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let response: CurrentUserResponse = try await perform(request, for: .updateCurrentUser)
+        return response.authenticatedUser
+    }
+
     func authenticate(with provider: AuthenticationProvider) async throws -> AuthenticatedUser {
         throw AuthenticationError.providerUnavailable
     }
@@ -229,7 +257,7 @@ struct APIAuthenticationRepository: AuthenticationRepository {
             return .accountAlreadyExists
         case (.login, 401):
             return .invalidCredentials
-        case (.currentUser, 401):
+        case (.currentUser, 401), (.updateCurrentUser, 401):
             return .sessionExpired
         default:
             return .requestFailed
