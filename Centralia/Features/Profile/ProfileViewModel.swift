@@ -51,7 +51,15 @@ final class ProfileViewModel {
         failureMessage = nil
 
         do {
-            let loadedProfile = try await userRepository.profile(for: authenticatedUser)
+            let localProfile = try await userRepository.profile(for: authenticatedUser)
+            // Authentication restores this identity from /me. Local profile data can
+            // contain an older name, so it must not override the server value.
+            let loadedProfile = UserProfile(
+                id: authenticatedUser.id,
+                displayName: authenticatedUser.displayName,
+                email: authenticatedUser.email ?? localProfile.email,
+                membershipStatus: localProfile.membershipStatus
+            )
 
             async let loadedVideos = videoRepository.videos()
             async let loadedFolders = folderRepository.folders()
