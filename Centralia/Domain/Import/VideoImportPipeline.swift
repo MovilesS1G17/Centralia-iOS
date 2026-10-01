@@ -30,7 +30,10 @@ struct ImportedVideoMetadata: Equatable, Sendable {
     let extractedOnScreenText: String?
     let generatedSummary: String?
 
+    var creatorDisplayName: String { creator.isEmpty ? "Creator unavailable" : creator }
+
     var formattedDuration: String {
+        guard durationSeconds > 0 else { return "Duration unavailable" }
         let minutes = durationSeconds / 60
         let seconds = durationSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)

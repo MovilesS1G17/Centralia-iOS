@@ -130,7 +130,7 @@ struct SaveConfirmationView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.centraliaSecondaryText)
 
-                Text(viewModel.video.creator)
+                Text(viewModel.video.creatorDisplayName)
                     .font(.title3.weight(.bold))
                     .lineLimit(2)
 

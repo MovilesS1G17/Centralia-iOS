@@ -49,23 +49,22 @@ final class DependencyContainer {
 
     static func live() -> DependencyContainer {
         let store = MockDataStore()
-        let libraryRepository = MockLibraryRepository(store: store)
         let userRepository = MockUserRepository(store: store)
-
+        let client = APILibraryClient()
+        let videoRepository = APIVideoItemRepository(client: client)
+        let folderRepository = APIFolderRepository(client: client)
         return DependencyContainer(
-            authenticationRepository: APIAuthenticationRepository(
-                configuration: .current
-            ),
-            videoItemRepository: libraryRepository,
-            folderRepository: libraryRepository,
+            authenticationRepository: APIAuthenticationRepository(configuration: .current),
+            videoItemRepository: videoRepository,
+            folderRepository: folderRepository,
             searchHistoryRepository: MockSearchHistoryRepository(store: store),
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
-                videoRepository: libraryRepository,
-                folderRepository: libraryRepository,
+                videoRepository: videoRepository,
+                folderRepository: folderRepository,
                 userRepository: userRepository
             ),
-            videoImportPipeline: MockVideoImportPipeline(),
+            videoImportPipeline: APIVideoImportPipeline(client: client),
             session: AppSession(isRestoringSession: true)
         )
     }

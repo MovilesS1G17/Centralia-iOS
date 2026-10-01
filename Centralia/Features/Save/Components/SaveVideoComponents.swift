@@ -20,7 +20,7 @@ struct SaveImportStatusCard: View {
                 } else if let metadata {
                     Text("\(metadata.platform.displayName) detected")
                         .font(.headline)
-                    Text("\(metadata.creator) · \(metadata.formattedDuration)")
+                    Text("\(metadata.creatorDisplayName) · \(metadata.formattedDuration)")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.centraliaSecondaryText)
 

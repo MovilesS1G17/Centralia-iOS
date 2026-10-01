@@ -192,7 +192,7 @@ struct LibraryVideoCard: View {
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
 
-                        Text(video.creator)
+                        Text(video.creatorDisplayName)
                             .font(.caption.weight(.medium))
                             .foregroundStyle(Color.centraliaSecondaryText)
                             .lineLimit(1)
@@ -217,7 +217,7 @@ struct LibraryVideoCard: View {
                     ShareLink(
                         item: video.sourceURL,
                         subject: Text(video.displayTitle),
-                        message: Text("\(video.displayTitle) — \(video.creator)")
+                        message: Text("\(video.displayTitle) — \(video.creatorDisplayName)")
                     ) {
                         Label("Share Link", systemImage: "square.and.arrow.up")
                     }

@@ -465,7 +465,7 @@ private struct FolderDetailVideoCard: View {
                 Text(video.displayTitle)
                     .font(.subheadline.weight(.bold))
                     .lineLimit(2)
-                Text(video.creator)
+                Text(video.creatorDisplayName)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(Color.centraliaSecondaryText)
                     .lineLimit(1)
@@ -480,7 +480,7 @@ private struct FolderDetailVideoCard: View {
                 ShareLink(
                     item: video.sourceURL,
                     subject: Text(video.displayTitle),
-                    message: Text("\(video.displayTitle) — \(video.creator)")
+                    message: Text("\(video.displayTitle) — \(video.creatorDisplayName)")
                 ) {
                     Label("Share Link", systemImage: "square.and.arrow.up")
                 }

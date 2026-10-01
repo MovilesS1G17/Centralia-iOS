@@ -54,6 +54,8 @@ struct VideoItem: Identifiable, Codable, Equatable, Hashable, Sendable {
     let savedAt: Date
     let analysisStatus: ContentAnalysisStatus
 
+    var creatorDisplayName: String { creator.isEmpty ? "Creator unavailable" : creator }
+
     var displayTitle: String {
         if let customTitle = customTitle?.nonEmptyTrimmed {
             return customTitle
@@ -67,10 +69,11 @@ struct VideoItem: Identifiable, Codable, Equatable, Hashable, Sendable {
             return sourceCaption
         }
 
-        return "Short by \(creator)"
+        return creator.isEmpty ? "Saved short" : "Short by \(creator)"
     }
 
     var formattedDuration: String {
+        guard durationSeconds > 0 else { return "Duration unavailable" }
         let minutes = durationSeconds / 60
         let seconds = durationSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)

@@ -8,6 +8,7 @@ protocol VideoItemRepository {
     func moveVideo(id: UUID, to folderID: UUID?) async throws
     func updateNote(id: UUID, note: String?) async throws
     func updateTags(id: UUID, tags: [String]) async throws
+    func recordSourceOpened(id: UUID) async
 }
 
 enum VideoItemRepositoryError: LocalizedError, Equatable {
@@ -19,4 +20,8 @@ enum VideoItemRepositoryError: LocalizedError, Equatable {
             "This short is already in your Centralia library."
         }
     }
+}
+
+extension VideoItemRepository {
+    func recordSourceOpened(id: UUID) async {}
 }

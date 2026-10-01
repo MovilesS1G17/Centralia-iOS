@@ -13,6 +13,7 @@ struct VideoDetailView: View {
     @State private var showsOpenFailure = false
     @State private var showsReportConfirmation = false
 
+    private let videoRepository: any VideoItemRepository
     private let videoChanged: (VideoItem) -> Void
     private let videoDeleted: (VideoItem) -> Void
 
@@ -30,6 +31,7 @@ struct VideoDetailView: View {
                 folderRepository: folderRepository
             )
         )
+        self.videoRepository = videoRepository
         self.videoChanged = videoChanged
         self.videoDeleted = videoDeleted
     }
@@ -65,7 +67,7 @@ struct VideoDetailView: View {
                     ShareLink(
                         item: viewModel.video.sourceURL,
                         subject: Text(viewModel.video.displayTitle),
-                        message: Text("\(viewModel.video.displayTitle) — \(viewModel.video.creator)")
+                        message: Text("\(viewModel.video.displayTitle) — \(viewModel.video.creatorDisplayName)")
                     ) {
                         Label("Share Link", systemImage: "square.and.arrow.up")
                     }
@@ -193,7 +195,7 @@ struct VideoDetailView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("videoDetailTitle")
 
-            Text("\(viewModel.video.creator) · Saved \(viewModel.video.savedAt.formatted(.dateTime.month(.abbreviated).day()))")
+            Text("\(viewModel.video.creatorDisplayName) · Saved \(viewModel.video.savedAt.formatted(.dateTime.month(.abbreviated).day()))")
                 .font(.headline)
                 .foregroundStyle(Color.centraliaSecondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -336,6 +338,8 @@ struct VideoDetailView: View {
         openURL(viewModel.video.sourceURL) { accepted in
             if !accepted {
                 showsOpenFailure = true
+            } else {
+                Task { await videoRepository.recordSourceOpened(id: viewModel.video.id) }
             }
         }
     }
