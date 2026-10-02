@@ -10,6 +10,7 @@ final class AppSession {
     enum AuthenticationDestination: Equatable {
         case signUp
         case logIn
+        case emailVerification(EmailVerificationContext)
     }
 
     var phase: Phase = .unauthenticated(.signUp)
@@ -25,6 +26,10 @@ final class AppSession {
 
     func showLogIn() {
         phase = .unauthenticated(.logIn)
+    }
+
+    func showEmailVerification(_ context: EmailVerificationContext) {
+        phase = .unauthenticated(.emailVerification(context))
     }
 
     func completeAuthentication(with user: AuthenticatedUser) {

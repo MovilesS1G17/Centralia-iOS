@@ -109,7 +109,7 @@ struct CentraliaTests {
         #expect(viewModel.isSubmittingEmail == false)
     }
 
-    @Test func signUpUsesTheEnteredNameForTheAuthenticatedUser() async {
+    @Test func signUpRequiresEmailVerificationAndRetainsTheEnteredName() async {
         let viewModel = SignUpViewModel(
             repository: MockAuthenticationRepository(delay: .zero)
         )
@@ -118,9 +118,18 @@ struct CentraliaTests {
         viewModel.password = "valid-password"
         viewModel.passwordConfirmation = "valid-password"
 
-        let user = await viewModel.createAccount()
+        let outcome = await viewModel.createAccount()
 
-        #expect(user?.displayName == "David Caro")
+        #expect(
+            outcome == .emailVerification(
+                EmailVerificationContext(
+                    email: "david@example.com",
+                    resendAvailableIn: 60,
+                    origin: .registration,
+                    intendedDisplayName: "David Caro"
+                )
+            )
+        )
     }
 
     @Test func signUpShowsServerValidationOnTheMatchingField() async {
@@ -156,6 +165,62 @@ struct CentraliaTests {
         #expect(viewModel.email == "fail@example.com")
         #expect(viewModel.password == "valid-password")
         #expect(viewModel.failureMessage == AuthenticationError.invalidCredentials.localizedDescription)
+    }
+
+    @Test func unverifiedLoginNavigatesToEmailVerification() async {
+        let viewModel = LogInViewModel(
+            repository: MockAuthenticationRepository(delay: .zero)
+        )
+        viewModel.email = "unverified@example.com"
+        viewModel.password = "valid-password"
+
+        let outcome = await viewModel.logIn()
+
+        #expect(
+            outcome == .emailVerification(
+                EmailVerificationContext(
+                    email: "unverified@example.com",
+                    resendAvailableIn: 60,
+                    origin: .signIn,
+                    intendedDisplayName: nil
+                )
+            )
+        )
+        #expect(viewModel.failureMessage == nil)
+    }
+
+    @Test func emailVerificationAppliesTheNameCapturedDuringRegistration() async {
+        let context = EmailVerificationContext(
+            email: "david@example.com",
+            resendAvailableIn: 60,
+            origin: .registration,
+            intendedDisplayName: "David Caro"
+        )
+        let viewModel = EmailVerificationViewModel(
+            repository: MockAuthenticationRepository(delay: .zero),
+            context: context
+        )
+        viewModel.code = "123456"
+
+        let user = await viewModel.verify()
+
+        #expect(user?.displayName == "David Caro")
+        #expect(viewModel.failureMessage == nil)
+    }
+
+    @Test func passwordResetRequiresAValidVerificationCodeAndPassword() async {
+        let viewModel = PasswordResetViewModel(
+            repository: MockAuthenticationRepository(delay: .zero),
+            initialEmail: "person@example.com"
+        )
+        viewModel.code = "123"
+        viewModel.newPassword = "new-password"
+        viewModel.passwordConfirmation = "new-password"
+
+        let user = await viewModel.confirmReset()
+
+        #expect(user == nil)
+        #expect(viewModel.codeError == "Enter the 6-digit code from your email.")
     }
 
     @Test func socialAuthenticationCompletesSession() async throws {
