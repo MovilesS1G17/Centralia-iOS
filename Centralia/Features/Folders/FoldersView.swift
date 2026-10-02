@@ -15,12 +15,14 @@ struct FoldersView: View {
     private let folderRepository: any FolderRepository
     private let suggestionPipeline: any VideoImportPipeline
     private let analytics: any AnalyticsTracking
+    private let playbackRepository: (any VideoPlaybackRepository)?
     private let libraryChanged: () -> Void
 
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         suggestionPipeline: any VideoImportPipeline,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         libraryChanged: @escaping () -> Void = {}
     ) {
@@ -32,6 +34,7 @@ struct FoldersView: View {
             )
         )
         self.analytics = analytics
+        self.playbackRepository = playbackRepository
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.suggestionPipeline = suggestionPipeline
@@ -63,6 +66,7 @@ struct FoldersView: View {
                         folder: folder,
                         videoRepository: videoRepository,
                         folderRepository: folderRepository,
+                        playbackRepository: playbackRepository,
                         analytics: analytics,
                         folderChanged: {
                             Task { await viewModel.applyFolderChange() }

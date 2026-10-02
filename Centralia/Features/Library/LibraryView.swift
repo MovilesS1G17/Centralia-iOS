@@ -17,11 +17,13 @@ struct LibraryView: View {
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let analytics: any AnalyticsTracking
+    private let playbackRepository: (any VideoPlaybackRepository)?
 
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         selectedTab: Binding<AppTab>,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         presentSave: @escaping () -> Void
     ) {
@@ -33,6 +35,7 @@ struct LibraryView: View {
             )
         )
         self.analytics = analytics
+        self.playbackRepository = playbackRepository
         _selectedTab = selectedTab
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
@@ -260,6 +263,7 @@ struct LibraryView: View {
                 video: video,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                playbackRepository: playbackRepository,
                 analytics: analytics,
                 videoChanged: { updatedVideo in
                     viewModel.apply(updatedVideo)
@@ -274,6 +278,7 @@ struct LibraryView: View {
                 folder: folder,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                playbackRepository: playbackRepository,
                 analytics: analytics,
                 folderChanged: {
                     Task {

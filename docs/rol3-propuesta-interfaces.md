@@ -197,3 +197,30 @@ El servidor rechaza los eventos que él mismo registra: `video_saved`, `video_op
 6. Decidir si `VideoItem` incorpora `thumbnailURL` y `embedURL`.
 
 Mientras tanto, los repositorios actuales siguen funcionando con los mocks y Features compila contra las firmas vigentes.
+
+## Fase 2: conexión con la infraestructura del Rol 1
+
+Features usa las firmas reales de los repositorios actuales (`VideoItemRepository`, `FolderRepository`, `SearchHistoryRepository`, `VideoImportPipeline`, `VideoPlaybackRepository`, `AnalyticsRepository`) y `APIClientError`. Las firmas propuestas más arriba para `VideoItemRepository` (`updateVideo`, `video(id:)`, `videos(in:)`) no se adoptaron: no hacen falta para lo que hay hoy, salvo `updateTitle` (ver pedidos).
+
+Flujos cubiertos:
+- Guardar enlace: detect, metadata, tags, sugerencia de carpeta y `POST /v1/videos`. Los fallos de tags y de sugerencia de carpeta no bloquean el guardado. `invalid_url`, `unsupported_*` y `duplicate_video` se muestran con el `detail` del backend y sin "Try Again".
+- Detalle: carga, carpeta, nota y tags con `PATCH`, borrar con deshacer (`restore`) y reproducción con `GET /v1/videos/{id}/playback` (stream firmado, con `embedURL` https como respaldo).
+- Carpetas: crear, renombrar y borrar con `folder_name_empty`, `folder_name_duplicate` y `folder_not_found`. Borrar una carpeta que ya no existe cuenta como hecho.
+- Historial de búsqueda: `APISearchHistoryRepository` ya usa `/v1/search-history`. Si falla, la pantalla de búsqueda sigue funcionando.
+- Analítica: `BatchingAnalyticsTracker` (Features/Shared) agrupa eventos (20 por lote o cada 5 s, máximo 100 por llamada), reintenta en el siguiente envío y no bloquea la UI.
+
+### Pedidos al Rol 1
+
+1. Inyección de analítica. En `DependencyContainer`, una propiedad y su asignación en el `init`:
+   ```swift
+   let analyticsTracker: BatchingAnalyticsTracker
+   // en init:
+   analyticsTracker = BatchingAnalyticsTracker(repository: analyticsRepository)
+   ```
+   Después pasar `analytics: container.analyticsTracker` a `LibraryView`, `SearchView`, `FoldersView` y `SaveVideoView` (todos aceptan el parámetro con valor por defecto). Conviene llamar `await container.analyticsTracker.flush()` cuando la app pasa a segundo plano.
+2. Inyección de playback. Pasar `playbackRepository: container.videoPlaybackRepository` a las mismas cuatro vistas. Sin esto el detalle mantiene la vista previa estática.
+3. `VideoItemRepository.updateTitle(id:title:)` (`PATCH /v1/videos/{id}` con `customTitle`). Hoy no hay forma de editar el título; no hay pantalla de edición hasta que exista.
+4. `VideoItemRepository.saveVideo` debería devolver el `VideoItem` del servidor (tags normalizados, URL recortada). Hoy devuelve `Void` y la confirmación muestra la copia local.
+5. `thumbnailURL` y `embedURL` en `VideoItem` (el DTO ya los trae y se descartan).
+6. Manejo global de `APIClientError.sessionExpired` (cerrar sesión y volver al login). Las pantallas solo muestran el mensaje.
+7. `MockVideoPlaybackRepository` siempre devuelve `streamURL: nil` y el `sourceURL` como `embedURL`; en modo mock el reproductor mostrará la página original en la vista web.

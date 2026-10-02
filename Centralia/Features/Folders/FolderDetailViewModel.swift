@@ -179,6 +179,10 @@ final class FolderDetailViewModel {
             try await folderRepository.deleteFolder(id: folder.id)
             return true
         } catch {
+            // Already removed elsewhere: the goal of the action is met.
+            if FeatureError.code(for: error) == "folder_not_found" {
+                return true
+            }
             presentFailure(error)
             return false
         }

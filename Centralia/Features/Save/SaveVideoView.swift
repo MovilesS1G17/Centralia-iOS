@@ -12,6 +12,8 @@ struct SaveVideoView: View {
     private let videoSaved: () -> Void
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let playbackRepository: (any VideoPlaybackRepository)?
+    private let analytics: any AnalyticsTracking
 
     private enum Field: Hashable {
         case url
@@ -22,6 +24,7 @@ struct SaveVideoView: View {
         pipeline: any VideoImportPipeline,
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         videoSaved: @escaping () -> Void
     ) {
@@ -35,6 +38,8 @@ struct SaveVideoView: View {
         )
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.playbackRepository = playbackRepository
+        self.analytics = analytics
         self.videoSaved = videoSaved
     }
 
@@ -46,6 +51,8 @@ struct SaveVideoView: View {
                     folderName: viewModel.folders.first { $0.id == savedVideo.folderID }?.name,
                     videoRepository: videoRepository,
                     folderRepository: folderRepository,
+                    playbackRepository: playbackRepository,
+                    analytics: analytics,
                     videoUpdated: videoSaved,
                     done: { dismiss() }
                 )

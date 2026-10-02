@@ -1,12 +1,30 @@
 import Foundation
 import Observation
 
+/// How a short is shown once playback has been resolved.
+enum PlaybackSurface: Equatable {
+    case stream(URL)
+    case embed(URL)
+}
+
 @Observable
 final class VideoDetailViewModel {
+    enum PlaybackState: Equatable {
+        case idle
+        case loading
+        case ready(PlaybackSurface)
+        case failed(String)
+    }
+
+    static let playbackUnavailableMessage =
+        "This short can't be played here right now. Try opening it in its app."
+
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let playbackRepository: (any VideoPlaybackRepository)?
     private let analytics: any AnalyticsTracking
     private var hasTrackedScreen = false
+    private var fallbackEmbedURL: URL?
 
     private(set) var video: VideoItem
     private(set) var folders: [LibraryFolder] = []
@@ -16,6 +34,11 @@ final class VideoDetailViewModel {
     private(set) var failureMessage: String?
     /// Set when the refresh on open fails; the saved copy stays visible.
     private(set) var loadFailureMessage: String?
+    private(set) var playbackState: PlaybackState = .idle
+
+    /// False until a playback repository is provided; the screen then keeps
+    /// its static preview.
+    var supportsPlayback: Bool { playbackRepository != nil }
 
     var folderName: String? {
         guard let folderID = video.folderID else { return nil }
@@ -41,23 +64,82 @@ final class VideoDetailViewModel {
         video: VideoItem,
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         self.video = video
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.playbackRepository = playbackRepository
         self.analytics = analytics
+    }
+
+    func startPlayback() async {
+        guard let playbackRepository, playbackState != .loading else { return }
+        playbackState = .loading
+        fallbackEmbedURL = nil
+
+        do {
+            let playback = try await playbackRepository.playback(for: video.id)
+            let embed = playback.embedURL.flatMap(Self.allowedURL)
+            let stream = playback.streamURL.flatMap(Self.allowedURL)
+            fallbackEmbedURL = embed
+
+            if let stream {
+                playbackState = .ready(.stream(stream))
+            } else if let embed {
+                playbackState = .ready(.embed(embed))
+            } else {
+                failPlayback(Self.playbackUnavailableMessage, reason: "playback_unavailable")
+                return
+            }
+            analytics.track(.playStarted(videoID: video.id, platform: video.platform))
+        } catch is CancellationError {
+            playbackState = .idle
+        } catch {
+            failPlayback(FeatureError.message(for: error), reason: FeatureError.code(for: error))
+        }
+    }
+
+    /// The native stream could not be played: use the platform's player if there is one.
+    func streamFailed() {
+        guard case .ready(.stream) = playbackState else { return }
+        analytics.track(.playFailed(videoID: video.id, platform: video.platform, reason: "stream_failed"))
+        if let fallbackEmbedURL {
+            playbackState = .ready(.embed(fallbackEmbedURL))
+        } else {
+            playbackState = .failed(Self.playbackUnavailableMessage)
+        }
+    }
+
+    /// The platform's web player could not be shown.
+    func embedFailed() {
+        guard case .ready(.embed) = playbackState else { return }
+        failPlayback(Self.playbackUnavailableMessage, reason: "embed_failed")
+    }
+
+    func stopPlayback() {
+        playbackState = .idle
+    }
+
+    private func failPlayback(_ message: String, reason: String) {
+        playbackState = .failed(message)
+        analytics.track(.playFailed(videoID: video.id, platform: video.platform, reason: reason))
+    }
+
+    private static func allowedURL(_ url: URL) -> URL? {
+        PlaybackURLPolicy.isAllowed(url) ? url : nil
+    }
+
+    /// The original link could not be opened in its app.
+    func trackPlayFailedOpeningSource() {
+        analytics.track(.playFailed(videoID: video.id, platform: video.platform, reason: "open_failed"))
     }
 
     func trackScreenViewed() {
         guard !hasTrackedScreen else { return }
         hasTrackedScreen = true
         analytics.track(.screenViewed(.videoDetail))
-    }
-
-    /// The original link could not be opened in its app.
-    func trackPlayFailed(reason: String) {
-        analytics.track(.playFailed(videoID: video.id, platform: video.platform, reason: reason))
     }
 
     func load() async {

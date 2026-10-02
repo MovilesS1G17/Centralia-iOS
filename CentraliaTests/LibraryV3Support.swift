@@ -64,6 +64,10 @@ final class V3SimulatedLibrary: VideoItemRepository, FolderRepository, VideoImpo
     var mutationError: Error?
     var folderError: Error?
     var importError: Error?
+    var tagsError: Error?
+    var suggestionError: Error?
+    var suggestedTags: [String] = []
+    var suggestedFolderName: String?
     var importedMetadata = ImportedVideoMetadata(
         sourceURL: URL(string: "https://www.tiktok.com/@maker/video/1")!,
         platform: .tiktok,
@@ -162,7 +166,14 @@ final class V3SimulatedLibrary: VideoItemRepository, FolderRepository, VideoImpo
         guard let index = storedFolders.firstIndex(where: { $0.id == id }) else {
             throw FolderRepositoryError.folderNotFound
         }
-        storedFolders[index].name = name
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw FolderRepositoryError.emptyName }
+        guard !storedFolders.contains(where: {
+            $0.id != id && $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
+        }) else {
+            throw FolderRepositoryError.duplicateName
+        }
+        storedFolders[index].name = trimmed
         return storedFolders[index]
     }
 
@@ -189,9 +200,66 @@ final class V3SimulatedLibrary: VideoItemRepository, FolderRepository, VideoImpo
         return importedMetadata
     }
 
-    func generateTags(for metadata: ImportedVideoMetadata) async throws -> [String] { [] }
+    func generateTags(for metadata: ImportedVideoMetadata) async throws -> [String] {
+        if let tagsError { throw tagsError }
+        return suggestedTags
+    }
 
-    func suggestFolder(for metadata: ImportedVideoMetadata, tags: [String]) async throws -> String? { nil }
+    func suggestFolder(for metadata: ImportedVideoMetadata, tags: [String]) async throws -> String? {
+        if let suggestionError { throw suggestionError }
+        return suggestedFolderName
+    }
+}
+
+/// Playback with a scripted answer, as `GET /v1/videos/{id}/playback` would give.
+@MainActor
+final class ScriptedPlaybackRepository: VideoPlaybackRepository {
+    var result: Result<VideoPlayback, Error>
+    private(set) var requestedIDs: [UUID] = []
+
+    init(_ result: Result<VideoPlayback, Error>) {
+        self.result = result
+    }
+
+    func playback(for videoID: UUID) async throws -> VideoPlayback {
+        requestedIDs.append(videoID)
+        return try result.get()
+    }
+}
+
+/// An analytics endpoint that records batches and can be told to fail.
+@MainActor
+final class RecordingAnalyticsRepository: AnalyticsRepository {
+    private(set) var batches: [[ClientAnalyticsEvent]] = []
+    var error: Error?
+
+    func record(_ events: [ClientAnalyticsEvent]) async throws {
+        if let error { throw error }
+        batches.append(events)
+    }
+}
+
+/// An analytics endpoint that holds every call until released, so a send
+/// can be kept in flight while more events arrive.
+@MainActor
+final class GatedAnalyticsRepository: AnalyticsRepository {
+    private(set) var batches: [[ClientAnalyticsEvent]] = []
+    private(set) var callsStarted = 0
+    var isBlocking = true
+
+    func record(_ events: [ClientAnalyticsEvent]) async throws {
+        callsStarted += 1
+        while isBlocking {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        batches.append(events)
+    }
+}
+
+extension V3APIError {
+    static func server(_ code: String, _ detail: String) -> APIClientError {
+        .server(status: 422, code: code, detail: detail, email: nil, retryAfter: nil)
+    }
 }
 
 enum LibraryFixtures {

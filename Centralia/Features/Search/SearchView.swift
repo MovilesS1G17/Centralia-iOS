@@ -15,11 +15,13 @@ struct SearchView: View {
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let analytics: any AnalyticsTracking
+    private let playbackRepository: (any VideoPlaybackRepository)?
 
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         searchHistoryRepository: any SearchHistoryRepository,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         _viewModel = State(
@@ -31,6 +33,7 @@ struct SearchView: View {
             )
         )
         self.analytics = analytics
+        self.playbackRepository = playbackRepository
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
     }
@@ -67,6 +70,7 @@ struct SearchView: View {
                         video: video,
                         videoRepository: videoRepository,
                         folderRepository: folderRepository,
+                        playbackRepository: playbackRepository,
                         analytics: analytics,
                         videoChanged: { updatedVideo in
                             viewModel.apply(updatedVideo)

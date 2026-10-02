@@ -21,6 +21,7 @@ struct VideoDetailView: View {
         video: VideoItem,
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         videoChanged: @escaping (VideoItem) -> Void = { _ in },
         videoDeleted: @escaping (VideoItem) -> Void = { _ in }
@@ -30,6 +31,7 @@ struct VideoDetailView: View {
                 video: video,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                playbackRepository: playbackRepository,
                 analytics: analytics
             )
         )
@@ -155,17 +157,7 @@ struct VideoDetailView: View {
         ZStack {
             thumbnailColor
 
-            Button {
-                isPlaying.toggle()
-            } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 76, height: 76)
-                    .background(Color.centraliaInk.opacity(0.95), in: Circle())
-            }
-            .buttonStyle(CentraliaPressStyle())
-            .accessibilityLabel(isPlaying ? "Pause preview" : "Play preview")
+            playbackContent
 
             Text(viewModel.video.platform.displayName)
                 .font(.subheadline.weight(.semibold))
@@ -175,20 +167,99 @@ struct VideoDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(CentraliaTheme.Spacing.medium)
 
-            Text(viewModel.video.formattedDuration)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .frame(minHeight: 32)
-                .background(Color.centraliaInk.opacity(0.88), in: Capsule())
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(CentraliaTheme.Spacing.medium)
+            if !isShowingPlayer {
+                Text(viewModel.video.formattedDuration)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 32)
+                    .background(Color.centraliaInk.opacity(0.88), in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(CentraliaTheme.Spacing.medium)
+            }
         }
         .frame(maxWidth: 410)
         .aspectRatio(0.72, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .frame(maxWidth: .infinity)
         .accessibilityIdentifier("videoDetailPreview")
+    }
+
+    private var isShowingPlayer: Bool {
+        if case .ready = viewModel.playbackState { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private var playbackContent: some View {
+        switch viewModel.playbackState {
+        case .idle:
+            playButton
+
+        case .loading:
+            ProgressView("Loading video…")
+                .tint(.white)
+                .foregroundStyle(.white)
+                .padding()
+                .background(Color.centraliaInk.opacity(0.85), in: RoundedRectangle(cornerRadius: 16))
+
+        case let .ready(surface):
+            ZStack(alignment: .topTrailing) {
+                switch surface {
+                case let .stream(url):
+                    StreamPlayerView(url: url) { viewModel.streamFailed() }
+                case let .embed(url):
+                    EmbedPlayerView(url: url) { viewModel.embedFailed() }
+                }
+
+                Button {
+                    viewModel.stopPlayback()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(Color.centraliaInk.opacity(0.85), in: Circle())
+                }
+                .padding(CentraliaTheme.Spacing.small)
+                .accessibilityLabel("Close player")
+            }
+
+        case let .failed(message):
+            VStack(spacing: CentraliaTheme.Spacing.small) {
+                Text(message)
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                Button("Try Again") {
+                    Task { await viewModel.startPlayback() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.centraliaInk)
+            }
+            .padding()
+            .background(Color.centraliaSurface.opacity(0.96), in: RoundedRectangle(cornerRadius: 16))
+            .padding(CentraliaTheme.Spacing.medium)
+        }
+    }
+
+    private var playButton: some View {
+        Button {
+            if viewModel.supportsPlayback {
+                Task { await viewModel.startPlayback() }
+            } else {
+                isPlaying.toggle()
+            }
+        } label: {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 76, height: 76)
+                .background(Color.centraliaInk.opacity(0.95), in: Circle())
+        }
+        .buttonStyle(CentraliaPressStyle())
+        .accessibilityLabel(
+            isPlaying ? "Pause preview" : (viewModel.supportsPlayback ? "Play video" : "Play preview")
+        )
     }
 
     private var metadata: some View {
@@ -361,7 +432,7 @@ struct VideoDetailView: View {
     private func openSourceVideo() {
         openURL(viewModel.video.sourceURL) { accepted in
             if !accepted {
-                viewModel.trackPlayFailed(reason: "open_failed")
+                viewModel.trackPlayFailedOpeningSource()
                 showsOpenFailure = true
             } else {
                 Task { await videoRepository.recordSourceOpened(id: viewModel.video.id) }

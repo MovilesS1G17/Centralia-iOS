@@ -325,7 +325,27 @@ struct SearchScreenStateTests {
         #expect(viewModel.filteredVideos.map(\.creator) == ["@other"])
     }
 
-    @Test func historyFailureDoesNotReplaceTheResults() async {
+    @Test func historyFailureDoesNotBlockTheScreen() async {
+        let library = V3SimulatedLibrary(videos: [LibraryFixtures.video()])
+        let history = History()
+        history.error = V3APIError(code: "not_authenticated", detail: "Your session has ended. Please sign in again.")
+        let viewModel = SearchViewModel(
+            videoRepository: library,
+            folderRepository: library,
+            searchHistoryRepository: history
+        )
+
+        await viewModel.load()
+        viewModel.query = "maker"
+        await viewModel.submitSearch()
+
+        #expect(viewModel.state == .loaded)
+        #expect(viewModel.failureMessage == nil)
+        #expect(viewModel.recentSearches.isEmpty)
+        #expect(viewModel.videos.count == 1)
+    }
+
+    @Test func submittedSearchesAreRecordedAndListed() async {
         let library = V3SimulatedLibrary(videos: [LibraryFixtures.video()])
         let history = History()
         let viewModel = SearchViewModel(
@@ -335,12 +355,14 @@ struct SearchScreenStateTests {
         )
         await viewModel.load()
 
-        history.error = V3APIError(code: "not_authenticated", detail: "Your session has ended. Please sign in again.")
-        viewModel.query = "maker"
+        viewModel.query = "  pasta  "
         await viewModel.submitSearch()
 
-        #expect(viewModel.state == .loaded)
-        #expect(viewModel.failureMessage == "Your session has ended. Please sign in again.")
+        #expect(history.queries == ["pasta"])
+        #expect(viewModel.recentSearches == ["pasta"])
+
+        await viewModel.clearRecentSearches()
+        #expect(viewModel.recentSearches.isEmpty)
     }
 }
 
@@ -467,7 +489,7 @@ struct FoldersAndDetailStateTests {
             analytics: analytics
         )
 
-        viewModel.trackPlayFailed(reason: "open_failed")
+        viewModel.trackPlayFailedOpeningSource()
 
         #expect(analytics.events.map(\.name) == ["play_failed"])
         #expect(analytics.events.first?.flatProperties == [
@@ -593,5 +615,496 @@ struct SaveScreenStateTests {
 
         #expect(created == nil)
         #expect(model.folderFailureMessage == "A folder with that name already exists.")
+    }
+}
+
+@MainActor
+struct VideoPlaybackTests {
+    private func makeViewModel(
+        _ result: Result<VideoPlayback, Error>?,
+        analytics: RecordingAnalyticsTracking = RecordingAnalyticsTracking()
+    ) -> (VideoDetailViewModel, ScriptedPlaybackRepository?, VideoItem) {
+        let video = LibraryFixtures.video()
+        let library = V3SimulatedLibrary(videos: [video])
+        let playback = result.map(ScriptedPlaybackRepository.init)
+        let viewModel = VideoDetailViewModel(
+            video: video,
+            videoRepository: library,
+            folderRepository: library,
+            playbackRepository: playback,
+            analytics: analytics
+        )
+        return (viewModel, playback, video)
+    }
+
+    private let stream = URL(string: "https://api.example.com/v1/streams/1?expires=1&signature=a")!
+    private let embed = URL(string: "https://www.tiktok.com/embed/v2/1")!
+
+    @Test func withoutARepositoryThePreviewStaysStatic() async {
+        let (viewModel, _, _) = makeViewModel(nil)
+        #expect(!viewModel.supportsPlayback)
+        await viewModel.startPlayback()
+        #expect(viewModel.playbackState == .idle)
+    }
+
+    @Test func streamIsPreferredAndStartsPlayback() async {
+        let analytics = RecordingAnalyticsTracking()
+        let (viewModel, repository, video) = makeViewModel(
+            .success(VideoPlayback(streamURL: stream, streamReady: true, expiresAt: nil, embedURL: embed)),
+            analytics: analytics
+        )
+
+        await viewModel.startPlayback()
+
+        #expect(viewModel.playbackState == .ready(.stream(stream)))
+        #expect(repository?.requestedIDs == [video.id])
+        #expect(analytics.events.map(\.name) == ["play_started"])
+    }
+
+    @Test func embedIsUsedWhenThereIsNoStream() async {
+        let (viewModel, _, _) = makeViewModel(
+            .success(VideoPlayback(streamURL: nil, streamReady: false, expiresAt: nil, embedURL: embed))
+        )
+        await viewModel.startPlayback()
+        #expect(viewModel.playbackState == .ready(.embed(embed)))
+    }
+
+    @Test func failedStreamFallsBackToTheEmbedAndReportsTheFailure() async {
+        let analytics = RecordingAnalyticsTracking()
+        let (viewModel, _, _) = makeViewModel(
+            .success(VideoPlayback(streamURL: stream, streamReady: true, expiresAt: nil, embedURL: embed)),
+            analytics: analytics
+        )
+        await viewModel.startPlayback()
+
+        viewModel.streamFailed()
+
+        #expect(viewModel.playbackState == .ready(.embed(embed)))
+        #expect(analytics.events.map(\.name) == ["play_started", "play_failed"])
+        #expect(analytics.events.last?.flatProperties["reason"] == "stream_failed")
+    }
+
+    @Test func failedStreamWithoutEmbedShowsAnError() async {
+        let (viewModel, _, _) = makeViewModel(
+            .success(VideoPlayback(streamURL: stream, streamReady: true, expiresAt: nil, embedURL: nil))
+        )
+        await viewModel.startPlayback()
+        viewModel.streamFailed()
+        #expect(viewModel.playbackState == .failed(VideoDetailViewModel.playbackUnavailableMessage))
+    }
+
+    @Test func insecureEmbedIsNotUsed() async {
+        let analytics = RecordingAnalyticsTracking()
+        let (viewModel, _, _) = makeViewModel(
+            .success(VideoPlayback(
+                streamURL: nil, streamReady: false, expiresAt: nil,
+                embedURL: URL(string: "http://example.com/embed")
+            )),
+            analytics: analytics
+        )
+
+        await viewModel.startPlayback()
+
+        #expect(viewModel.playbackState == .failed(VideoDetailViewModel.playbackUnavailableMessage))
+        #expect(analytics.events.first?.flatProperties["reason"] == "playback_unavailable")
+    }
+
+    @Test func backendErrorShowsItsDetailAndReportsPlayFailed() async {
+        let analytics = RecordingAnalyticsTracking()
+        let (viewModel, _, _) = makeViewModel(
+            .failure(V3APIError.server("video_not_found", "This short is no longer in your library.")),
+            analytics: analytics
+        )
+
+        await viewModel.startPlayback()
+
+        #expect(viewModel.playbackState == .failed("This short is no longer in your library."))
+        #expect(analytics.events.map(\.name) == ["play_failed"])
+        #expect(analytics.events.first?.flatProperties["reason"] == "video_not_found")
+    }
+
+    @Test func insecureStreamIsIgnoredAndTheEmbedIsUsed() async {
+        let (viewModel, _, _) = makeViewModel(
+            .success(VideoPlayback(
+                streamURL: URL(string: "http://example.com/v1/streams/1"),
+                streamReady: true, expiresAt: nil, embedURL: embed
+            ))
+        )
+
+        await viewModel.startPlayback()
+
+        #expect(viewModel.playbackState == .ready(.embed(embed)))
+    }
+
+    @Test func embedFailureEndsInAnError() async {
+        let analytics = RecordingAnalyticsTracking()
+        let (viewModel, _, _) = makeViewModel(
+            .success(VideoPlayback(streamURL: nil, streamReady: false, expiresAt: nil, embedURL: embed)),
+            analytics: analytics
+        )
+        await viewModel.startPlayback()
+
+        viewModel.embedFailed()
+
+        #expect(viewModel.playbackState == .failed(VideoDetailViewModel.playbackUnavailableMessage))
+        #expect(analytics.events.last?.flatProperties["reason"] == "embed_failed")
+    }
+
+    @Test func playbackCanBeRetriedAndClosed() async {
+        let (viewModel, repository, _) = makeViewModel(.failure(URLError(.notConnectedToInternet)))
+        await viewModel.startPlayback()
+        #expect(viewModel.playbackState == .failed(FeatureError.offlineMessage))
+
+        repository?.result = .success(VideoPlayback(streamURL: nil, streamReady: false, expiresAt: nil, embedURL: embed))
+        await viewModel.startPlayback()
+        #expect(viewModel.playbackState == .ready(.embed(embed)))
+
+        viewModel.stopPlayback()
+        #expect(viewModel.playbackState == .idle)
+    }
+}
+
+@MainActor
+struct ImportFlowTests {
+    private func model(_ library: V3SimulatedLibrary) -> SaveVideoViewModel {
+        let model = SaveVideoViewModel(pipeline: library, videoRepository: library, folderRepository: library)
+        model.urlText = library.importedMetadata.sourceURL.absoluteString
+        return model
+    }
+
+    @Test func fullFlowFillsSuggestionsAndSavesTheVideo() async {
+        let folder = LibraryFolder(id: UUID(), name: "Recipes", symbolName: "folder")
+        let library = V3SimulatedLibrary(folders: [folder])
+        library.suggestedTags = ["food", " Food ", "quick"]
+        library.suggestedFolderName = "recipes"
+        let model = model(library)
+        await model.loadFolders()
+
+        await model.analyzeURL(after: .zero)
+
+        #expect(model.analysisState == .ready)
+        #expect(model.suggestedTags == ["food", "quick"])
+        #expect(model.selectedFolderID == folder.id)
+
+        let saved = await model.save(organized: true)
+        #expect(saved?.folderID == folder.id)
+        #expect(library.storedVideos.count == 1)
+    }
+
+    @Test func tagAndFolderSuggestionFailuresDoNotBlockSaving() async {
+        let library = V3SimulatedLibrary()
+        library.tagsError = URLError(.timedOut)
+        library.suggestionError = URLError(.timedOut)
+        let model = model(library)
+
+        await model.analyzeURL(after: .zero)
+
+        #expect(model.analysisState == .ready)
+        #expect(model.suggestedTags.isEmpty)
+        #expect(model.suggestedFolderName == nil)
+        #expect(model.canSave)
+    }
+
+    @Test func linkErrorsAreShownWithTheBackendMessageAndAreNotRetryable() async {
+        let cases: [(Error, String)] = [
+            (VideoImportError.invalidURL, "invalid_url"),
+            (VideoImportError.unsupportedSource, "unsupported_source"),
+            (VideoImportError.unsupportedYouTubeVideo, "unsupported_youtube_video"),
+            (VideoImportError.unsupportedInstagramPost, "unsupported_instagram_post"),
+            (V3APIError.server("unsupported_source", "Centralia currently supports TikTok videos only."),
+             "unsupported_source")
+        ]
+
+        for (error, code) in cases {
+            let library = V3SimulatedLibrary()
+            library.importError = error
+            let analytics = RecordingAnalyticsTracking()
+            let model = SaveVideoViewModel(
+                pipeline: library, videoRepository: library, folderRepository: library, analytics: analytics
+            )
+            model.urlText = "https://example.com/video"
+
+            await model.analyzeURL(after: .zero)
+
+            #expect(model.analysisState == .failed(error.localizedDescription))
+            #expect(!model.canSave)
+            #expect(!FeatureError.isRetryable(error))
+            #expect(analytics.events(named: "error_shown").first?.flatProperties["code"] == code)
+        }
+    }
+
+    @Test func duplicateVideoFromTheServerIsNotRetryable() async {
+        let library = V3SimulatedLibrary()
+        let model = model(library)
+        await model.analyzeURL(after: .zero)
+        library.saveError = V3APIError.server("duplicate_video", "This short is already in your Centralia library.")
+
+        let saved = await model.save(organized: false)
+
+        #expect(saved == nil)
+        #expect(model.saveFailureMessage == "This short is already in your Centralia library.")
+        #expect(!model.saveFailureIsRetryable)
+    }
+}
+
+@MainActor
+struct FolderManagementTests {
+    private let folder = LibraryFolder(id: UUID(), name: "Recipes", symbolName: "folder")
+
+    private func detail(_ library: V3SimulatedLibrary) -> FolderDetailViewModel {
+        FolderDetailViewModel(folder: folder, videoRepository: library, folderRepository: library)
+    }
+
+    @Test func renameSucceedsAndUpdatesTheFolder() async {
+        let library = V3SimulatedLibrary(folders: [folder])
+        let model = detail(library)
+
+        let renamed = await model.renameFolder(to: "  Dinner ")
+
+        #expect(renamed)
+        #expect(model.folder.name == "Dinner")
+    }
+
+    @Test func renameRejectsEmptyAndDuplicateNames() async {
+        let other = LibraryFolder(id: UUID(), name: "Travel", symbolName: "folder")
+        let library = V3SimulatedLibrary(folders: [folder, other])
+        let model = detail(library)
+
+        #expect(await model.renameFolder(to: "   ") == false)
+        #expect(model.failureMessage == "Enter a folder name.")
+
+        #expect(await model.renameFolder(to: "travel") == false)
+        #expect(model.failureMessage == "A folder with that name already exists.")
+        #expect(model.folder.name == "Recipes")
+    }
+
+    @Test func renamingAMissingFolderReportsFolderNotFound() async {
+        let library = V3SimulatedLibrary(folders: [])
+        let analytics = RecordingAnalyticsTracking()
+        let model = FolderDetailViewModel(
+            folder: folder, videoRepository: library, folderRepository: library, analytics: analytics
+        )
+
+        #expect(await model.renameFolder(to: "Dinner") == false)
+        #expect(model.failureMessage == "This folder is no longer available.")
+        #expect(analytics.events(named: "error_shown").first?.flatProperties["code"] == "folder_not_found")
+    }
+
+    @Test func deleteMovesVideosToUnorganizedAndReportsSuccess() async {
+        let video = LibraryFixtures.video(folderID: folder.id)
+        let library = V3SimulatedLibrary(videos: [video], folders: [folder])
+        let model = detail(library)
+
+        #expect(await model.deleteFolder())
+        #expect(library.storedFolders.isEmpty)
+        #expect(library.storedVideos.first?.folderID == nil)
+    }
+
+    @Test func deletingAFolderThatIsAlreadyGoneCountsAsDone() async {
+        let library = V3SimulatedLibrary(folders: [])
+        let model = detail(library)
+
+        #expect(await model.deleteFolder())
+        #expect(model.failureMessage == nil)
+    }
+
+    @Test func otherDeleteFailuresAreShown() async {
+        let library = V3SimulatedLibrary(folders: [folder])
+        library.folderError = URLError(.notConnectedToInternet)
+        let model = detail(library)
+
+        #expect(await model.deleteFolder() == false)
+        #expect(model.failureMessage == FeatureError.offlineMessage)
+    }
+}
+
+@MainActor
+struct BatchingAnalyticsTrackerTests {
+    private func event(_ screen: AnalyticsScreen = .library) -> ClientAnalyticsEvent {
+        .screenViewed(screen)
+    }
+
+    @Test func flushSendsBufferedEventsInOneBatch() async {
+        let repository = RecordingAnalyticsRepository()
+        let tracker = BatchingAnalyticsTracker(repository: repository, batchSize: 50, flushInterval: .seconds(60))
+
+        tracker.track(event())
+        tracker.track(event(.search))
+        #expect(tracker.pendingCount == 2)
+        #expect(repository.batches.isEmpty)
+
+        await tracker.flush()
+
+        #expect(repository.batches.map(\.count) == [2])
+        #expect(tracker.pendingCount == 0)
+    }
+
+    @Test func reachingTheBatchSizeSendsWithoutWaiting() async {
+        let repository = RecordingAnalyticsRepository()
+        let tracker = BatchingAnalyticsTracker(repository: repository, batchSize: 3, flushInterval: .seconds(60))
+
+        for _ in 0..<3 { tracker.track(event()) }
+
+        for _ in 0..<100 where repository.batches.isEmpty {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(repository.batches.map(\.count) == [3])
+    }
+
+    @Test func bufferedEventsAreSentAfterTheFlushInterval() async {
+        let repository = RecordingAnalyticsRepository()
+        let tracker = BatchingAnalyticsTracker(repository: repository, batchSize: 50, flushInterval: .milliseconds(30))
+
+        tracker.track(event())
+
+        for _ in 0..<100 where repository.batches.isEmpty {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(repository.batches.map(\.count) == [1])
+    }
+
+    @Test func failedSendKeepsTheEventsForTheNextAttempt() async {
+        let repository = RecordingAnalyticsRepository()
+        repository.error = URLError(.notConnectedToInternet)
+        let tracker = BatchingAnalyticsTracker(repository: repository, batchSize: 50, flushInterval: .seconds(60))
+        tracker.track(event())
+
+        await tracker.flush()
+        #expect(tracker.pendingCount == 1)
+
+        repository.error = nil
+        await tracker.flush()
+        #expect(repository.batches.map(\.count) == [1])
+        #expect(tracker.pendingCount == 0)
+    }
+
+    private func waitUntil(_ condition: @MainActor () -> Bool) async {
+        for _ in 0..<300 where !condition() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    @Test func noBatchExceedsTheServerLimit() async {
+        let repository = GatedAnalyticsRepository()
+        let tracker = BatchingAnalyticsTracker(
+            repository: repository, batchSize: 100, flushInterval: .seconds(60), maxBuffered: 250
+        )
+
+        // The first batch stays in flight while 150 more events pile up.
+        for _ in 0..<100 { tracker.track(event()) }
+        await waitUntil { repository.callsStarted == 1 }
+        for _ in 0..<150 { tracker.track(event()) }
+        #expect(tracker.pendingCount == 150)
+
+        repository.isBlocking = false
+        await waitUntil { repository.batches.reduce(0) { $0 + $1.count } == 250 }
+
+        #expect(repository.batches.map(\.count) == [100, 100, 50])
+        #expect(repository.batches.allSatisfy { $0.count <= BatchingAnalyticsTracker.maximumBatchSize })
+        #expect(tracker.pendingCount == 0)
+    }
+
+    @Test func oldestEventsAreDroppedWhenTheBufferIsFull() async {
+        let repository = GatedAnalyticsRepository()
+        let tracker = BatchingAnalyticsTracker(
+            repository: repository, batchSize: 10, flushInterval: .seconds(60), maxBuffered: 20
+        )
+        func numbered(_ index: Int) -> ClientAnalyticsEvent {
+            .errorShown(screen: .library, code: "n\(index)")
+        }
+
+        for index in 0..<10 { tracker.track(numbered(index)) }
+        await waitUntil { repository.callsStarted == 1 }
+
+        // 25 more events with room for 20: the 5 oldest are dropped.
+        for index in 10..<35 { tracker.track(numbered(index)) }
+        #expect(tracker.pendingCount == 20)
+
+        repository.isBlocking = false
+        await waitUntil { repository.batches.reduce(0) { $0 + $1.count } == 30 }
+
+        let sentCodes = repository.batches.flatMap { $0.map { $0.flatProperties["code"] ?? "" } }
+        #expect(repository.batches.map(\.count) == [10, 20])
+        #expect(sentCodes == (0..<10).map { "n\($0)" } + (15..<35).map { "n\($0)" })
+    }
+
+    @Test func failedSendRetriesOnItsOwnWithoutAnotherEvent() async {
+        let repository = RecordingAnalyticsRepository()
+        repository.error = URLError(.notConnectedToInternet)
+        let tracker = BatchingAnalyticsTracker(
+            repository: repository,
+            batchSize: 50,
+            flushInterval: .seconds(60),
+            retryBaseDelay: .milliseconds(20),
+            maxRetryDelay: .milliseconds(80)
+        )
+        tracker.track(event())
+
+        await tracker.flush()
+        #expect(tracker.pendingCount == 1)
+        #expect(repository.batches.isEmpty)
+
+        // The endpoint recovers; no new event and no explicit flush.
+        repository.error = nil
+        await waitUntil { !repository.batches.isEmpty }
+
+        #expect(repository.batches.map(\.count) == [1])
+        #expect(tracker.pendingCount == 0)
+    }
+
+    @Test func retryDelayGrowsAndIsCapped() {
+        let base = Duration.seconds(2)
+        let maximum = Duration.seconds(60)
+        let delays = (0..<8).map {
+            BatchingAnalyticsTracker.retryDelay(forAttempt: $0, base: base, maximum: maximum)
+        }
+        #expect(delays == [
+            .seconds(2), .seconds(4), .seconds(8), .seconds(16),
+            .seconds(32), .seconds(60), .seconds(60), .seconds(60)
+        ])
+        #expect(BatchingAnalyticsTracker.retryDelay(forAttempt: 500, base: base, maximum: maximum) == maximum)
+    }
+}
+
+@MainActor
+struct PlaybackURLPolicyTests {
+    private func allowed(_ text: String, local: Bool) -> Bool {
+        PlaybackURLPolicy.isAllowed(URL(string: text)!, allowLocalHTTP: local)
+    }
+
+    @Test func httpsIsAlwaysAllowed() {
+        #expect(allowed("https://api.example.com/v1/streams/1", local: false))
+        #expect(allowed("https://www.tiktok.com/embed/v2/1", local: true))
+    }
+
+    @Test func otherSchemesAreRejected() {
+        for text in ["ftp://example.com/a", "file:///etc/hosts", "javascript:alert(1)", "data:text/html,hi"] {
+            #expect(!allowed(text, local: true))
+            #expect(!allowed(text, local: false))
+        }
+    }
+
+    @Test func httpToTheInternetIsRejectedEvenWhenLocalHTTPIsOn() {
+        #expect(!allowed("http://example.com/embed", local: true))
+        #expect(!allowed("http://example.com/embed", local: false))
+        #expect(!allowed("http://192.168.1.10.example.com/embed", local: true))
+    }
+
+    @Test func httpToLocalHostsIsOnlyAllowedWhenEnabled() {
+        let hosts = [
+            "http://localhost:8000/v1/streams/1", "http://127.0.0.1:8000/x", "http://10.0.0.5/x",
+            "http://172.16.0.1/x", "http://172.31.255.255/x", "http://192.168.0.20/x",
+            "http://mac.local:8000/x", "http://[::1]:8000/x"
+        ]
+        for text in hosts {
+            #expect(allowed(text, local: true))
+            #expect(!allowed(text, local: false))
+        }
+    }
+
+    @Test func publicAddressesAreNotLocal() {
+        for text in ["http://172.32.0.1/x", "http://172.15.0.1/x", "http://8.8.8.8/x", "http://11.0.0.1/x"] {
+            #expect(!allowed(text, local: true))
+        }
     }
 }

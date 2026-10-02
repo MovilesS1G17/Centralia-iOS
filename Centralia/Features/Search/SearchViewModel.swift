@@ -97,12 +97,14 @@ final class SearchViewModel {
         do {
             videos = try await videoRepository.videos()
             folders = try await folderRepository.folders()
-            recentSearches = try await searchHistoryRepository.recentSearches()
             state = .loaded
         } catch {
             state = .failed(FeatureError.message(for: error))
             analytics.track(.errorShown(screen: .search, code: FeatureError.code(for: error)))
+            return
         }
+
+        await loadRecentSearches()
     }
 
     func retry() async {
@@ -110,16 +112,18 @@ final class SearchViewModel {
         await load()
     }
 
+    /// The history is a convenience: when it can't be read the screen still works.
+    func loadRecentSearches() async {
+        recentSearches = (try? await searchHistoryRepository.recentSearches()) ?? []
+    }
+
     func submitSearch() async {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return }
 
-        do {
-            try await searchHistoryRepository.recordSearch(trimmedQuery)
-            recentSearches = try await searchHistoryRepository.recentSearches()
-        } catch {
-            presentFailure(error)
-        }
+        // The backend records `search_performed` itself when the query is stored.
+        try? await searchHistoryRepository.recordSearch(trimmedQuery)
+        await loadRecentSearches()
     }
 
     func selectRecentSearch(_ search: String) async {

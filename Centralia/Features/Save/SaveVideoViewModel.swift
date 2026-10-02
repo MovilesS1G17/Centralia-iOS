@@ -134,16 +134,15 @@ final class SaveVideoViewModel {
             try ensureCurrent(source)
             metadata = extractedMetadata
 
+            // Suggestions only enrich the save: if they fail, the short can
+            // still be saved without them.
             analysisState = .processing(.generatingTags)
-            let generatedTags = try await pipeline.generateTags(for: extractedMetadata)
+            let generatedTags = (try? await pipeline.generateTags(for: extractedMetadata)) ?? []
             try ensureCurrent(source)
-            suggestedTags = generatedTags
+            suggestedTags = TagCatalog.normalize(generatedTags)
 
             analysisState = .processing(.suggestingFolder)
-            let folderName = try await pipeline.suggestFolder(
-                for: extractedMetadata,
-                tags: generatedTags
-            )
+            let folderName = try? await pipeline.suggestFolder(for: extractedMetadata, tags: generatedTags)
             try ensureCurrent(source)
             suggestedFolderName = folderName
             selectedFolderID = folders.first {
