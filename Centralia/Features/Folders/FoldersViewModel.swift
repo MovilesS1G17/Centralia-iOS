@@ -12,6 +12,8 @@ final class FoldersViewModel {
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let analytics: any AnalyticsTracking
+    private var hasTrackedScreen = false
 
     private(set) var state: LoadState = .idle
     private(set) var folders: [LibraryFolder] = []
@@ -35,10 +37,18 @@ final class FoldersViewModel {
 
     init(
         videoRepository: any VideoItemRepository,
-        folderRepository: any FolderRepository
+        folderRepository: any FolderRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.analytics = analytics
+    }
+
+    func trackScreenViewed() {
+        guard !hasTrackedScreen else { return }
+        hasTrackedScreen = true
+        analytics.track(.screenViewed(.folders))
     }
 
     func load() async {
@@ -52,7 +62,8 @@ final class FoldersViewModel {
             folders = try await loadedFolders
             state = .loaded
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(FeatureError.message(for: error))
+            analytics.track(.errorShown(screen: .folders, code: FeatureError.code(for: error)))
         }
     }
 
@@ -64,6 +75,7 @@ final class FoldersViewModel {
     func createFolder(named name: String, symbol: FolderSymbol) async -> LibraryFolder? {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             failureMessage = FolderRepositoryError.emptyName.localizedDescription
+            analytics.track(.errorShown(screen: .folders, code: "folder_name_empty"))
             return nil
         }
 
@@ -79,7 +91,8 @@ final class FoldersViewModel {
             failureMessage = nil
             return folder
         } catch {
-            failureMessage = error.localizedDescription
+            failureMessage = FeatureError.message(for: error)
+            analytics.track(.errorShown(screen: .folders, code: FeatureError.code(for: error)))
             return nil
         }
     }
