@@ -83,9 +83,10 @@ struct ProfileView: View {
                 }
 
             case .changePassword:
-                FeatureUnavailableSheet(
-                    title: "Change Password",
-                    message: "Changing your password will be available once email verification is implemented."
+                ChangePasswordSheet(
+                    isSaving: viewModel.isChangingPassword,
+                    changePassword: viewModel.changePassword,
+                    completed: { showsPasswordConfirmation = true }
                 )
 
             case .notificationPreferences:
@@ -432,7 +433,7 @@ private struct EditProfileSheet: View {
                 Section("Email") {
                     Text(profile.email)
                         .foregroundStyle(.secondary)
-                    Text("Changing your email will be available once email verification is implemented.")
+                    Text("Changing your email will be available once the email-change verification flow is implemented.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -476,32 +477,6 @@ private struct EditProfileSheet: View {
                 failureMessage = "Your changes could not be saved. Please try again."
             }
         }
-    }
-}
-
-private struct FeatureUnavailableSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let title: String
-    let message: String
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label(title, systemImage: "lock.circle")
-            } description: {
-                Text(message)
-            }
-            .padding()
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium])
     }
 }
 

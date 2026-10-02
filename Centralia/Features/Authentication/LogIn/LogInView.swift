@@ -6,16 +6,19 @@ struct LogInView: View {
 
     private let repository: any AuthenticationRepository
     let showSignUp: () -> Void
+    let showEmailVerification: (EmailVerificationContext) -> Void
     let completeAuthentication: (AuthenticatedUser) -> Void
 
     init(
         repository: any AuthenticationRepository,
         showSignUp: @escaping () -> Void,
+        showEmailVerification: @escaping (EmailVerificationContext) -> Void,
         completeAuthentication: @escaping (AuthenticatedUser) -> Void
     ) {
         self.repository = repository
         _viewModel = State(initialValue: LogInViewModel(repository: repository))
         self.showSignUp = showSignUp
+        self.showEmailVerification = showEmailVerification
         self.completeAuthentication = completeAuthentication
     }
 
@@ -95,7 +98,11 @@ struct LogInView: View {
             .font(.subheadline)
         }
         .sheet(isPresented: $showsPasswordReset) {
-            PasswordResetSheet(repository: repository, initialEmail: viewModel.email)
+            PasswordResetSheet(
+                repository: repository,
+                initialEmail: viewModel.email,
+                completeAuthentication: completeAuthentication
+            )
         }
     }
 
@@ -124,8 +131,12 @@ struct LogInView: View {
 
     private func logIn() {
         Task {
-            if let user = await viewModel.logIn() {
+            guard let outcome = await viewModel.logIn() else { return }
+            switch outcome {
+            case let .authenticated(user):
                 completeAuthentication(user)
+            case let .emailVerification(context):
+                showEmailVerification(context)
             }
         }
     }
@@ -143,6 +154,7 @@ struct LogInView: View {
     LogInView(
         repository: MockAuthenticationRepository(delay: .zero),
         showSignUp: {},
+        showEmailVerification: { _ in },
         completeAuthentication: { _ in }
     )
 }

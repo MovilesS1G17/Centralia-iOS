@@ -5,15 +5,18 @@ struct SignUpView: View {
     @State private var presentedLegalDocument: LegalDocument?
 
     let showLogIn: () -> Void
+    let showEmailVerification: (EmailVerificationContext) -> Void
     let completeAuthentication: (AuthenticatedUser) -> Void
 
     init(
         repository: any AuthenticationRepository,
         showLogIn: @escaping () -> Void,
+        showEmailVerification: @escaping (EmailVerificationContext) -> Void,
         completeAuthentication: @escaping (AuthenticatedUser) -> Void
     ) {
         _viewModel = State(initialValue: SignUpViewModel(repository: repository))
         self.showLogIn = showLogIn
+        self.showEmailVerification = showEmailVerification
         self.completeAuthentication = completeAuthentication
     }
 
@@ -181,8 +184,12 @@ struct SignUpView: View {
 
     private func createAccount() {
         Task {
-            if let user = await viewModel.createAccount() {
+            guard let outcome = await viewModel.createAccount() else { return }
+            switch outcome {
+            case let .authenticated(user):
                 completeAuthentication(user)
+            case let .emailVerification(context):
+                showEmailVerification(context)
             }
         }
     }
@@ -200,6 +207,7 @@ struct SignUpView: View {
     SignUpView(
         repository: MockAuthenticationRepository(delay: .zero),
         showLogIn: {},
+        showEmailVerification: { _ in },
         completeAuthentication: { _ in }
     )
 }
