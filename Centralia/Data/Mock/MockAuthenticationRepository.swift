@@ -62,6 +62,10 @@ struct MockAuthenticationRepository: V3AuthenticationRepository {
             throw AuthenticationError.invalidCredentials
         }
 
+        if email.localizedCaseInsensitiveCompare("unverified@example.com") == .orderedSame {
+            throw AuthenticationError.verificationRequired(email: email, resendAvailableIn: 60)
+        }
+
         return AuthenticatedUser(
             id: deterministicID(for: email),
             displayName: displayName(from: email),

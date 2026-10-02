@@ -11,6 +11,33 @@ struct VerificationPending: Equatable, Sendable {
     let resendAvailableIn: Int
 }
 
+/// The context needed to complete an email-verification flow without storing
+/// a password or other secret in navigation state.
+struct EmailVerificationContext: Equatable, Sendable {
+    enum Origin: Equatable, Sendable {
+        case registration
+        case signIn
+    }
+
+    let email: String
+    let resendAvailableIn: Int
+    let origin: Origin
+    /// Registration is intentionally limited to email and password by V3.
+    /// We retain the optional name only long enough to apply it to `/v1/me`
+    /// after the account has been verified.
+    let intendedDisplayName: String?
+}
+
+enum SignUpOutcome: Equatable {
+    case authenticated(AuthenticatedUser)
+    case emailVerification(EmailVerificationContext)
+}
+
+enum LogInOutcome: Equatable {
+    case authenticated(AuthenticatedUser)
+    case emailVerification(EmailVerificationContext)
+}
+
 enum AuthenticationField: String, Equatable, Sendable {
     case email
     case password

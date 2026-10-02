@@ -41,7 +41,7 @@ final class SignUpViewModel {
         mode = .options
     }
 
-    func createAccount() async -> AuthenticatedUser? {
+    func createAccount() async -> SignUpOutcome? {
         guard !isBusy, validateForm() else {
             return nil
         }
@@ -51,11 +51,30 @@ final class SignUpViewModel {
         defer { isSubmittingEmail = false }
 
         do {
-            return try await repository.createAccount(
-                displayName: AuthenticationValidation.normalizedDisplayName(displayName),
-                email: AuthenticationValidation.normalizedEmail(email),
+            let normalizedEmail = AuthenticationValidation.normalizedEmail(email)
+            let normalizedDisplayName = AuthenticationValidation.normalizedDisplayName(displayName)
+
+            if let repository = repository as? any V3AuthenticationRepository {
+                let pending = try await repository.register(
+                    email: normalizedEmail,
+                    password: password
+                )
+                return .emailVerification(
+                    EmailVerificationContext(
+                        email: pending.email,
+                        resendAvailableIn: pending.resendAvailableIn,
+                        origin: .registration,
+                        intendedDisplayName: normalizedDisplayName
+                    )
+                )
+            }
+
+            let user = try await repository.createAccount(
+                displayName: normalizedDisplayName,
+                email: normalizedEmail,
                 password: password
             )
+            return .authenticated(user)
         } catch is CancellationError {
             return nil
         } catch let error as AuthenticationError {

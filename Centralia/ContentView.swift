@@ -20,6 +20,7 @@ struct ContentView: View {
                     SignUpView(
                         repository: container.authenticationRepository,
                         showLogIn: container.session.showLogIn,
+                        showEmailVerification: container.session.showEmailVerification,
                         completeAuthentication: container.session.completeAuthentication
                     )
 
@@ -27,6 +28,22 @@ struct ContentView: View {
                     LogInView(
                         repository: container.authenticationRepository,
                         showSignUp: container.session.showSignUp,
+                        showEmailVerification: container.session.showEmailVerification,
+                        completeAuthentication: container.session.completeAuthentication
+                    )
+
+                case let .unauthenticated(.emailVerification(context)):
+                    EmailVerificationView(
+                        repository: container.authenticationRepository,
+                        context: context,
+                        cancel: {
+                            switch context.origin {
+                            case .registration:
+                                container.session.showSignUp()
+                            case .signIn:
+                                container.session.showLogIn()
+                            }
+                        },
                         completeAuthentication: container.session.completeAuthentication
                     )
 
