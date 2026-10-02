@@ -14,26 +14,40 @@ struct V3APIError: LocalizedError, CodedError, Equatable {
     )
 }
 
+extension ClientAnalyticsEvent {
+    /// Properties as plain strings, so tests can compare them directly.
+    var flatProperties: [String: String] {
+        properties.mapValues { value in
+            switch value {
+            case let .text(text): text
+            case let .integer(number): String(number)
+            case let .decimal(number): String(number)
+            case let .boolean(flag): String(flag)
+            }
+        }
+    }
+}
+
 /// Records every event so tests can assert what the screens emit.
 final class RecordingAnalyticsTracking: AnalyticsTracking, @unchecked Sendable {
     private let lock = NSLock()
-    private var storage: [AnalyticsEvent] = []
+    private var storage: [ClientAnalyticsEvent] = []
 
     nonisolated init() {}
 
-    var events: [AnalyticsEvent] {
+    var events: [ClientAnalyticsEvent] {
         lock.lock()
         defer { lock.unlock() }
         return storage
     }
 
-    func track(_ event: AnalyticsEvent) {
+    func track(_ event: ClientAnalyticsEvent) {
         lock.lock()
         defer { lock.unlock() }
         storage.append(event)
     }
 
-    func events(named name: String) -> [AnalyticsEvent] {
+    func events(named name: String) -> [ClientAnalyticsEvent] {
         events.filter { $0.name == name }
     }
 }

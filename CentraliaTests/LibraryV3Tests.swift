@@ -123,7 +123,7 @@ struct AnalyticsEventTests {
 
     @Test func eventNamesFollowTheV3Contract() {
         let id = UUID()
-        let events: [AnalyticsEvent] = [
+        let events: [ClientAnalyticsEvent] = [
             .screenViewed(.videoDetail),
             .errorShown(screen: .library, code: "video_not_found"),
             .playStarted(videoID: id, platform: .tiktok),
@@ -146,23 +146,23 @@ struct AnalyticsEventTests {
         ]
         let id = UUID()
         let names = [
-            AnalyticsEvent.screenViewed(.search).name,
-            AnalyticsEvent.errorShown(screen: .search, code: "x").name,
-            AnalyticsEvent.playStarted(videoID: id, platform: .tiktok).name,
-            AnalyticsEvent.playFailed(videoID: id, platform: .tiktok, reason: "x").name,
-            AnalyticsEvent.shareTapped(videoID: id).name
+            ClientAnalyticsEvent.screenViewed(.search).name,
+            ClientAnalyticsEvent.errorShown(screen: .search, code: "x").name,
+            ClientAnalyticsEvent.playStarted(videoID: id, platform: .tiktok).name,
+            ClientAnalyticsEvent.playFailed(videoID: id, platform: .tiktok, reason: "x").name,
+            ClientAnalyticsEvent.shareTapped(videoID: id).name
         ]
         #expect(serverEvents.isDisjoint(with: names))
     }
 
     @Test func propertiesUseTheDocumentedKeys() {
         let id = UUID()
-        #expect(AnalyticsEvent.screenViewed(.folderDetail).properties == ["screen": "folder_detail"])
-        #expect(AnalyticsEvent.errorShown(screen: .saveVideo, code: "duplicate_video").properties
+        #expect(ClientAnalyticsEvent.screenViewed(.folderDetail).flatProperties == ["screen": "folder_detail"])
+        #expect(ClientAnalyticsEvent.errorShown(screen: .saveVideo, code: "duplicate_video").flatProperties
             == ["screen": "save_video", "code": "duplicate_video"])
-        #expect(AnalyticsEvent.playFailed(videoID: id, platform: .instagramReel, reason: "r").properties
+        #expect(ClientAnalyticsEvent.playFailed(videoID: id, platform: .instagramReel, reason: "r").flatProperties
             == [
-                "video_id": .string(id.uuidString.lowercased()),
+                "video_id": id.uuidString.lowercased(),
                 "video_platform": "instagramReel",
                 "reason": "r"
             ])
@@ -235,7 +235,7 @@ struct LibraryScreenStateTests {
 
         await viewModel.load()
         #expect(viewModel.state == .failed(FeatureError.offlineMessage))
-        #expect(analytics.events(named: "error_shown").first?.properties["code"] == "network_unavailable")
+        #expect(analytics.events(named: "error_shown").first?.flatProperties["code"] == "network_unavailable")
 
         library.listError = nil
         await viewModel.retry()
@@ -259,7 +259,7 @@ struct LibraryScreenStateTests {
         #expect(viewModel.state == .loaded)
         #expect(viewModel.videos.count == 1)
         #expect(viewModel.failureMessage == "This short is no longer in your library.")
-        #expect(analytics.events(named: "error_shown").first?.properties["code"] == "video_not_found")
+        #expect(analytics.events(named: "error_shown").first?.flatProperties["code"] == "video_not_found")
     }
 
     @Test func screenViewedIsSentOnce() {
@@ -362,7 +362,7 @@ struct FoldersAndDetailStateTests {
 
         #expect(created == nil)
         #expect(viewModel.failureMessage == "A folder with that name already exists.")
-        #expect(analytics.events(named: "error_shown").first?.properties
+        #expect(analytics.events(named: "error_shown").first?.flatProperties
             == ["screen": "folders", "code": "folder_name_duplicate"])
     }
 
@@ -395,7 +395,7 @@ struct FoldersAndDetailStateTests {
         await viewModel.move(video, to: UUID())
 
         #expect(viewModel.failureMessage == "This folder is no longer available.")
-        #expect(analytics.events(named: "error_shown").first?.properties["code"] == "folder_not_found")
+        #expect(analytics.events(named: "error_shown").first?.flatProperties["code"] == "folder_not_found")
     }
 
     @Test func folderDetailSearchUsesTheSharedSearch() async {
@@ -452,7 +452,7 @@ struct FoldersAndDetailStateTests {
 
         #expect(!updated)
         #expect(viewModel.failureMessage == "This short is no longer in your library.")
-        #expect(analytics.events(named: "error_shown").first?.properties
+        #expect(analytics.events(named: "error_shown").first?.flatProperties
             == ["screen": "video_detail", "code": "video_not_found"])
     }
 
@@ -470,8 +470,8 @@ struct FoldersAndDetailStateTests {
         viewModel.trackPlayFailed(reason: "open_failed")
 
         #expect(analytics.events.map(\.name) == ["play_failed"])
-        #expect(analytics.events.first?.properties == [
-            "video_id": .string(video.id.uuidString.lowercased()),
+        #expect(analytics.events.first?.flatProperties == [
+            "video_id": video.id.uuidString.lowercased(),
             "video_platform": "instagramReel",
             "reason": "open_failed"
         ])
@@ -519,7 +519,7 @@ struct SaveScreenStateTests {
 
         #expect(model.analysisState == .failed(VideoImportError.unsupportedSource.localizedDescription))
         #expect(!model.canSave)
-        #expect(analytics.events(named: "error_shown").first?.properties["code"] == "unsupported_source")
+        #expect(analytics.events(named: "error_shown").first?.flatProperties["code"] == "unsupported_source")
     }
 
     @Test func savingAnExistingLinkReportsDuplicateVideo() async {
@@ -536,7 +536,7 @@ struct SaveScreenStateTests {
         #expect(saved == nil)
         #expect(model.saveFailureMessage == "This short is already in your Centralia library.")
         #expect(!model.saveFailureIsRetryable)
-        #expect(analytics.events(named: "error_shown").first?.properties
+        #expect(analytics.events(named: "error_shown").first?.flatProperties
             == ["screen": "save_video", "code": "duplicate_video"])
         #expect(analytics.events(named: "video_saved").isEmpty)
     }

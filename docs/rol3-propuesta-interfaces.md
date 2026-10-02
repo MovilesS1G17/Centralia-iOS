@@ -12,23 +12,9 @@ Propuesta de firmas Swift para los repositorios y el tracker de analítica que c
 
 ## Error compartido
 
-El Rol 1 es dueño de este tipo. Lo único que Features necesita es poder leer el `code` y mostrar el `detail`.
+El Rol 1 ya expone `APIClientError` (`.server(status:code:detail:email:retryAfter:)`, `.sessionExpired`, `.networkUnavailable`, `.invalidResponse`). Features lo consume sin duplicarlo: `FeatureError` usa `detail` como mensaje y `code` para ramificar y para `error_shown`. `CodedError` (en `Features/Shared/FeatureError.swift`) solo cubre errores locales o de prueba que no vienen de `APIClient`.
 
-```swift
-protocol CodedError: Error {            // hoy vive en Features/Shared/FeatureError.swift
-    var code: String { get }
-}
-
-struct APIError: LocalizedError, CodedError, Equatable, Sendable {
-    let status: Int
-    let code: String
-    let detail: String
-    let retryAfter: Int?
-    var errorDescription: String? { detail }
-}
-```
-
-Los errores de transporte (sin red, timeout) deben llegar como `URLError`, sin envolver. Los 401 deben llegar como `APIError(status: 401, code: "not_authenticated", ...)` para que el Rol 2 cierre la sesión.
+Un 401 llega como `.sessionExpired` (el Rol 2 cierra la sesión) y se reporta como `not_authenticated`.
 
 ## VideoItemRepository
 
@@ -77,6 +63,7 @@ protocol VideoItemRepository {
 
 Notas:
 - `VideoItem` no tiene `thumbnailURL` ni `embedURL`. Si se quieren mostrar, el Rol 1 debe agregarlos al modelo global (campos opcionales).
+- `VideoPlayback` y `VideoPlaybackRepository.playback(for:)` ya existen en Domain (Rol 1); aquí solo se listan para completar el contrato.
 - Hoy `moveVideo`, `updateNote` y `updateTags` son tres llamadas. Todas se pueden implementar sobre `updateVideo`; para no romper a los consumidores se pueden dejar como extensión del protocolo.
 - `restoreVideo(id:)` devuelve el video porque el backend responde `VideoOut`. Si el borrado fue de la carpeta, vuelve a Unorganized.
 - El servidor normaliza `tags` (recorta, quita duplicados sin importar mayúsculas, máximo 60 caracteres) y devuelve el resultado. El cliente debe usar el video devuelto, no su copia local.
@@ -147,20 +134,17 @@ protocol VideoImportPipeline {
 
 La firma coincide con la actual. Hoy `detectPlatform` es local y `generateTags`/`suggestFolder` devuelven vacío: deben pasar a llamar al backend.
 
-## AnalyticsTracking
+## Analítica
 
-Implementado hoy en `Features/Shared/AnalyticsTracking.swift` con `NoOpAnalyticsTracking`. El Rol 1 solo tiene que ofrecer una implementación real.
+El Rol 1 define `AnalyticsRepository.record(_:)` con `ClientAnalyticsEvent` (`name`, `occurredAt`, `properties: [String: AnalyticsValue]`). Features construye los eventos sobre ese tipo (`Features/Shared/AnalyticsTracking.swift`) y depende de un protocolo mínimo, fire-and-forget:
 
 ```swift
 protocol AnalyticsTracking: Sendable {
-    func track(_ event: AnalyticsEvent)    // fire-and-forget, nunca lanza ni bloquea
-}
-
-struct AnalyticsEvent: Equatable, Sendable {
-    let name: String                       // snake_case, 2-64 caracteres
-    let properties: [String: AnalyticsValue]   // máximo 20, valores escalares
+    func track(_ event: ClientAnalyticsEvent)    // nunca lanza ni bloquea
 }
 ```
+
+Hoy los ViewModels usan `NoOpAnalyticsTracking`. Para activarlo falta un adaptador de `AnalyticsTracking` sobre `AnalyticsRepository` (con buffer y reintento) y pasarlo desde `DependencyContainer`/`AuthenticatedAppView`.
 
 Endpoint: `POST /v1/analytics/events`
 
@@ -205,10 +189,10 @@ El servidor rechaza los eventos que él mismo registra: `video_saved`, `video_op
 
 ## Lo que se necesita del Rol 1
 
-1. `APIClient` único con `/v1`, camelCase, `X-Client-Platform` y el `APIError` de arriba.
-2. DTOs compartidos para `VideoItem`, `LibraryFolder` y `VideoPlayback`.
+1. Confirmar que los repositorios de biblioteca usan el `APIClient` nuevo (`/v1`, camelCase, `X-Client-Platform`) y que sus errores llegan como `APIClientError`.
+2. DTOs compartidos para `VideoItem` y `LibraryFolder`.
 3. Las firmas de este documento (en especial `updateVideo`, `restoreVideo(id:)`, `playback` y `videos(in:)`).
-4. Una implementación real de `AnalyticsTracking` y su inyección en `DependencyContainer`/`AuthenticatedAppView`.
+4. Un adaptador `AnalyticsTracking` sobre `AnalyticsRepository` y su inyección en `DependencyContainer`/`AuthenticatedAppView`.
 5. `SearchHistoryRepository` e imports apuntando al backend en `live()`.
 6. Decidir si `VideoItem` incorpora `thumbnailURL` y `embedURL`.
 

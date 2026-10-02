@@ -46,6 +46,16 @@ enum FeatureError {
         if let coded = error as? CodedError { return coded.code }
         if error is URLError { return "network_unavailable" }
 
+        if let apiError = error as? APIClientError {
+            switch apiError {
+            case let .server(_, code, _, _, _): return code
+            case .sessionExpired: return "not_authenticated"
+            case .networkUnavailable: return "network_unavailable"
+            case .invalidResponse: return "invalid_response"
+            case .configurationMissing: return "configuration_missing"
+            }
+        }
+
         switch error {
         case let error as VideoItemRepositoryError:
             switch error {
