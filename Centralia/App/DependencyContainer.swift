@@ -1,6 +1,8 @@
 final class DependencyContainer {
     let authenticationRepository: any AuthenticationRepository
     let videoItemRepository: any VideoItemRepository
+    let videoPlaybackRepository: any VideoPlaybackRepository
+    let analyticsRepository: any AnalyticsRepository
     let folderRepository: any FolderRepository
     let searchHistoryRepository: any SearchHistoryRepository
     let userRepository: any UserRepository
@@ -11,6 +13,8 @@ final class DependencyContainer {
     init(
         authenticationRepository: any AuthenticationRepository,
         videoItemRepository: any VideoItemRepository,
+        videoPlaybackRepository: any VideoPlaybackRepository,
+        analyticsRepository: any AnalyticsRepository,
         folderRepository: any FolderRepository,
         searchHistoryRepository: any SearchHistoryRepository,
         userRepository: any UserRepository,
@@ -20,6 +24,8 @@ final class DependencyContainer {
     ) {
         self.authenticationRepository = authenticationRepository
         self.videoItemRepository = videoItemRepository
+        self.videoPlaybackRepository = videoPlaybackRepository
+        self.analyticsRepository = analyticsRepository
         self.folderRepository = folderRepository
         self.searchHistoryRepository = searchHistoryRepository
         self.userRepository = userRepository
@@ -35,6 +41,8 @@ final class DependencyContainer {
         return DependencyContainer(
             authenticationRepository: MockAuthenticationRepository(),
             videoItemRepository: libraryRepository,
+            videoPlaybackRepository: MockVideoPlaybackRepository(videoRepository: libraryRepository),
+            analyticsRepository: MockAnalyticsRepository(),
             folderRepository: libraryRepository,
             searchHistoryRepository: MockSearchHistoryRepository(store: store),
             userRepository: userRepository,
@@ -48,16 +56,18 @@ final class DependencyContainer {
     }
 
     static func live() -> DependencyContainer {
-        let store = MockDataStore()
-        let userRepository = MockUserRepository(store: store)
-        let client = APILibraryClient()
+        let api = APIClient()
+        let client = APILibraryClient(api: api)
+        let userRepository = APIUserRepository(client: api)
         let videoRepository = APIVideoItemRepository(client: client)
         let folderRepository = APIFolderRepository(client: client)
         return DependencyContainer(
-            authenticationRepository: APIAuthenticationRepository(configuration: .current),
+            authenticationRepository: APIAuthenticationRepository(client: api),
             videoItemRepository: videoRepository,
+            videoPlaybackRepository: APIVideoPlaybackRepository(client: client),
+            analyticsRepository: APIAnalyticsRepository(client: api),
             folderRepository: folderRepository,
-            searchHistoryRepository: MockSearchHistoryRepository(store: store),
+            searchHistoryRepository: APISearchHistoryRepository(client: api),
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
                 videoRepository: videoRepository,

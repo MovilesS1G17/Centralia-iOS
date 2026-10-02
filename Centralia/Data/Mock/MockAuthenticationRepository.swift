@@ -1,6 +1,6 @@
 import Foundation
 
-struct MockAuthenticationRepository: AuthenticationRepository {
+struct MockAuthenticationRepository: V3AuthenticationRepository {
     private let delay: Duration
     private let providerFailures: [AuthenticationProvider: AuthenticationError]
 
@@ -28,6 +28,31 @@ struct MockAuthenticationRepository: AuthenticationRepository {
             displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
             email: email
         )
+    }
+
+    func register(email: String, password _: String) async throws -> VerificationPending {
+        try await simulateWork()
+        if email.localizedCaseInsensitiveCompare("existing@example.com") == .orderedSame {
+            throw AuthenticationError.accountAlreadyExists
+        }
+        return VerificationPending(email: email, resendAvailableIn: 60)
+    }
+
+    func verifyEmail(email: String, code: String) async throws -> AuthenticatedUser {
+        try await simulateWork()
+        guard code == "123456" else {
+            throw AuthenticationError.serverMessage("That code isn't right. Check the email and try again.")
+        }
+        return AuthenticatedUser(id: deterministicID(for: email), displayName: displayName(from: email), email: email)
+    }
+
+    func resendVerificationCode(email: String) async throws -> VerificationPending {
+        try await simulateWork()
+        return VerificationPending(email: email, resendAvailableIn: 60)
+    }
+
+    func confirmPasswordReset(email: String, code: String, newPassword _: String) async throws -> AuthenticatedUser {
+        try await verifyEmail(email: email, code: code)
     }
 
     func logIn(email: String, password: String) async throws -> AuthenticatedUser {

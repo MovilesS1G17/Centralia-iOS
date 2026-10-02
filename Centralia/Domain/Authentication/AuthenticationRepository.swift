@@ -16,3 +16,10 @@ protocol AuthenticationRepository {
     func requestPasswordReset(for email: String) async throws
     func signOut() async throws
 }
+
+protocol V3AuthenticationRepository: AuthenticationRepository {
+    func register(email: String, password: String) async throws -> VerificationPending
+    func verifyEmail(email: String, code: String) async throws -> AuthenticatedUser
+    func resendVerificationCode(email: String) async throws -> VerificationPending
+    func confirmPasswordReset(email: String, code: String, newPassword: String) async throws -> AuthenticatedUser
+}
