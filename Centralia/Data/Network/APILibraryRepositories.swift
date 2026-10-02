@@ -88,9 +88,69 @@ struct APILibraryClient: @unchecked Sendable {
             }
         }
     }
+
+    /// Fire-and-forget: reports a client-measured search latency sample.
+    /// Unlike `event(_:videoID:properties:)`, this event has no `video_id`.
+    func searchCompletedEvent(durationMs: Int, resultCount: Int, deviceModel: String, filterCount: Int) {
+        Task.detached(priority: .utility) {
+            for attempt in 0..<2 {
+                do {
+                    _ = try await request("/events", method: "POST", body: [
+                        "event_name": "search_completed", "client_platform": "ios",
+                        "properties": [
+                            "duration_ms": durationMs, "result_count": resultCount,
+                            "device_model": deviceModel, "filter_count": filterCount
+                        ]
+                    ])
+                    return
+                } catch {
+                    if attempt == 0 { try? await Task.sleep(for: .seconds(2)) }
+                }
+            }
+        }
+    }
+
+    /// Like `request(_:method:body:)`, but attaches extra headers and returns
+    /// the `HTTPURLResponse` too so callers can read response headers (e.g.
+    /// `X-Total-Count`). Used by `APISearchRepository`; left separate from
+    /// `request` so every existing caller of `request` stays untouched.
+    func requestWithResponse(
+        _ path: String,
+        queryItems: [URLQueryItem] = [],
+        headers: [String: String] = [:]
+    ) async throws -> (data: Data, response: HTTPURLResponse) {
+        guard let token = try tokenStore.accessToken() else { throw LibraryAPIError.sessionExpired }
+        var url = configuration.endpoint(path: path)
+        if !queryItems.isEmpty, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.queryItems = queryItems
+            url = components.url ?? url
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        for (field, value) in headers {
+            request.setValue(value, forHTTPHeaderField: field)
+        }
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw LibraryAPIError.unavailable
+        }
+        guard let http = response as? HTTPURLResponse else { throw LibraryAPIError.invalidResponse }
+        if http.statusCode == 401 { throw LibraryAPIError.sessionExpired }
+        guard (200...299).contains(http.statusCode) else {
+            let detail = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            throw LibraryAPIError.message(detail?["detail"] as? String ?? "Centralia couldn't complete this request.")
+        }
+        return (data, http)
+    }
 }
 
-private struct VideoWire: Decodable {
+struct VideoWire: Decodable {
     let id: UUID
     let sourceURL: URL
     let platform: VideoPlatform

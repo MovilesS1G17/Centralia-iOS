@@ -18,12 +18,14 @@ struct SearchView: View {
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        searchRepository: any SearchRepository,
         searchHistoryRepository: any SearchHistoryRepository
     ) {
         _viewModel = State(
             initialValue: SearchViewModel(
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                searchRepository: searchRepository,
                 searchHistoryRepository: searchHistoryRepository
             )
         )
@@ -241,7 +243,7 @@ struct SearchView: View {
                 "All Platforms",
                 isSelected: viewModel.selectedPlatform == nil
             ) {
-                viewModel.selectedPlatform = nil
+                viewModel.selectPlatform(nil)
             }
 
             ForEach(VideoPlatform.allCases) { platform in
@@ -249,7 +251,7 @@ struct SearchView: View {
                     platform.displayName,
                     isSelected: viewModel.selectedPlatform == platform
                 ) {
-                    viewModel.selectedPlatform = platform
+                    viewModel.selectPlatform(platform)
                 }
             }
         } label: {
@@ -267,7 +269,7 @@ struct SearchView: View {
                 "All Creators",
                 isSelected: viewModel.selectedCreator == nil
             ) {
-                viewModel.selectedCreator = nil
+                viewModel.selectCreator(nil)
             }
 
             ForEach(viewModel.availableCreators, id: \.self) { creator in
@@ -275,7 +277,7 @@ struct SearchView: View {
                     creator,
                     isSelected: viewModel.selectedCreator == creator
                 ) {
-                    viewModel.selectedCreator = creator
+                    viewModel.selectCreator(creator)
                 }
             }
         } label: {
@@ -293,14 +295,14 @@ struct SearchView: View {
                 "All Folders",
                 isSelected: viewModel.selectedFolder == .all
             ) {
-                viewModel.selectedFolder = .all
+                viewModel.selectFolder(.all)
             }
 
             selectionButton(
                 "Unorganized",
                 isSelected: viewModel.selectedFolder == .unorganized
             ) {
-                viewModel.selectedFolder = .unorganized
+                viewModel.selectFolder(.unorganized)
             }
 
             ForEach(viewModel.folders) { folder in
@@ -308,7 +310,7 @@ struct SearchView: View {
                     folder.name,
                     isSelected: viewModel.selectedFolder == .folder(folder.id)
                 ) {
-                    viewModel.selectedFolder = .folder(folder.id)
+                    viewModel.selectFolder(.folder(folder.id))
                 }
             }
         } label: {

@@ -18,6 +18,7 @@ final class SearchViewModel {
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let searchRepository: any SearchRepository
     private let searchHistoryRepository: any SearchHistoryRepository
 
     private(set) var state: LoadState = .idle
@@ -31,6 +32,9 @@ final class SearchViewModel {
     var selectedCreator: String?
     var selectedFolder: SearchFolderFilter = .all
     var selectedTags: Set<String> = []
+
+    private var searchTask: Task<Void, Never>?
+    private var hasEverLoaded = false
 
     var filteredVideos: [VideoItem] {
         let terms = query
@@ -102,10 +106,12 @@ final class SearchViewModel {
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        searchRepository: any SearchRepository,
         searchHistoryRepository: any SearchHistoryRepository
     ) {
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.searchRepository = searchRepository
         self.searchHistoryRepository = searchHistoryRepository
     }
 
@@ -118,14 +124,100 @@ final class SearchViewModel {
             folders = try await folderRepository.folders()
             recentSearches = try await searchHistoryRepository.recentSearches()
             state = .loaded
+            hasEverLoaded = true
         } catch {
             state = .failed(error.localizedDescription)
         }
     }
 
+    /// Retries whatever last failed: the initial load if it never
+    /// succeeded, or the last search otherwise (so "Try Again" after a
+    /// failed filtered search retries that search, not a full reload).
     func retry() async {
-        state = .idle
-        await load()
+        guard state.isFailure else { return }
+        if hasEverLoaded {
+            performSearch()
+        } else {
+            state = .idle
+            await load()
+        }
+    }
+
+    /// Runs a real backend search (`GET /videos`, Specification-filtered)
+    /// against whatever query/filters are currently active, measures the
+    /// client-perceived latency with a monotonic clock, and — only when at
+    /// least one filter or query term is active — reports it as
+    /// `search_completed` without blocking the UI. The server-filtered
+    /// result becomes the new `videos`; `filteredVideos` still narrows
+    /// further client-side for things the backend doesn't support (multiple
+    /// tags, multi-term AND matching, "unorganized", matching tags/folder
+    /// name by text).
+    func performSearch() {
+        searchTask?.cancel()
+        searchTask = Task { [weak self] in
+            await self?.runSearch()
+        }
+    }
+
+    private var singleTermServerQuery: String? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains(where: \.isWhitespace) else { return nil }
+        return trimmed
+    }
+
+    private var serverFolderID: UUID? {
+        guard case let .folder(folderID) = selectedFolder else { return nil }
+        return folderID
+    }
+
+    private var serverTag: String? {
+        selectedTags.count == 1 ? selectedTags.first : nil
+    }
+
+    private var activeFilterCount: Int {
+        var count = 0
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { count += 1 }
+        if selectedPlatform != nil { count += 1 }
+        if selectedCreator != nil { count += 1 }
+        if selectedFolder != .all { count += 1 }
+        if !selectedTags.isEmpty { count += 1 }
+        return count
+    }
+
+    private func runSearch() async {
+        state = .loading
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        do {
+            let result = try await searchRepository.search(
+                query: singleTermServerQuery,
+                platform: selectedPlatform,
+                creator: selectedCreator,
+                folderID: serverFolderID,
+                tag: serverTag,
+                limit: nil,
+                offset: 0
+            )
+            guard !Task.isCancelled else { return }
+            videos = result.videos
+            state = .loaded
+
+            let filterCount = activeFilterCount
+            if filterCount > 0 {
+                let elapsed = start.duration(to: clock.now)
+                let durationMs = Int(elapsed.components.seconds) * 1000
+                    + Int(elapsed.components.attoseconds / 1_000_000_000_000_000)
+                searchRepository.reportSearchCompleted(
+                    durationMs: durationMs,
+                    resultCount: result.totalCount,
+                    filterCount: filterCount
+                )
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+            state = .failed(error.localizedDescription)
+        }
     }
 
     func submitSearch() async {
@@ -138,6 +230,23 @@ final class SearchViewModel {
         } catch {
             state = .failed(error.localizedDescription)
         }
+
+        performSearch()
+    }
+
+    func selectPlatform(_ platform: VideoPlatform?) {
+        selectedPlatform = platform
+        performSearch()
+    }
+
+    func selectCreator(_ creator: String?) {
+        selectedCreator = creator
+        performSearch()
+    }
+
+    func selectFolder(_ folder: SearchFolderFilter) {
+        selectedFolder = folder
+        performSearch()
     }
 
     func selectRecentSearch(_ search: String) async {
@@ -160,6 +269,7 @@ final class SearchViewModel {
         } else {
             selectedTags.insert(tag)
         }
+        performSearch()
     }
 
     func clearFilters() {
@@ -167,6 +277,7 @@ final class SearchViewModel {
         selectedCreator = nil
         selectedFolder = .all
         selectedTags.removeAll()
+        performSearch()
     }
 
     func clearSearch() {

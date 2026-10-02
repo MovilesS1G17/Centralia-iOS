@@ -2,6 +2,7 @@ final class DependencyContainer {
     let authenticationRepository: any AuthenticationRepository
     let videoItemRepository: any VideoItemRepository
     let folderRepository: any FolderRepository
+    let searchRepository: any SearchRepository
     let searchHistoryRepository: any SearchHistoryRepository
     let userRepository: any UserRepository
     let libraryExportService: any LibraryExportService
@@ -12,6 +13,7 @@ final class DependencyContainer {
         authenticationRepository: any AuthenticationRepository,
         videoItemRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        searchRepository: any SearchRepository,
         searchHistoryRepository: any SearchHistoryRepository,
         userRepository: any UserRepository,
         libraryExportService: any LibraryExportService,
@@ -21,6 +23,7 @@ final class DependencyContainer {
         self.authenticationRepository = authenticationRepository
         self.videoItemRepository = videoItemRepository
         self.folderRepository = folderRepository
+        self.searchRepository = searchRepository
         self.searchHistoryRepository = searchHistoryRepository
         self.userRepository = userRepository
         self.libraryExportService = libraryExportService
@@ -36,6 +39,7 @@ final class DependencyContainer {
             authenticationRepository: MockAuthenticationRepository(),
             videoItemRepository: libraryRepository,
             folderRepository: libraryRepository,
+            searchRepository: MockSearchRepository(videoRepository: libraryRepository),
             searchHistoryRepository: MockSearchHistoryRepository(store: store),
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
@@ -57,6 +61,7 @@ final class DependencyContainer {
             authenticationRepository: APIAuthenticationRepository(configuration: .current),
             videoItemRepository: videoRepository,
             folderRepository: folderRepository,
+            searchRepository: APISearchRepository(client: client),
             searchHistoryRepository: MockSearchHistoryRepository(store: store),
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(

@@ -337,6 +337,7 @@ struct CentraliaTests {
         let viewModel = SearchViewModel(
             videoRepository: libraryRepository,
             folderRepository: libraryRepository,
+            searchRepository: MockSearchRepository(videoRepository: libraryRepository),
             searchHistoryRepository: searchHistoryRepository
         )
 
@@ -368,6 +369,7 @@ struct CentraliaTests {
         let viewModel = SearchViewModel(
             videoRepository: libraryRepository,
             folderRepository: libraryRepository,
+            searchRepository: MockSearchRepository(videoRepository: libraryRepository),
             searchHistoryRepository: MockSearchHistoryRepository(
                 store: store,
                 filename: "search-fields-history-test.json"

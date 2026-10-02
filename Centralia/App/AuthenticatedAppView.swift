@@ -4,6 +4,7 @@ struct AuthenticatedAppView: View {
     let user: AuthenticatedUser
     let videoRepository: any VideoItemRepository
     let folderRepository: any FolderRepository
+    let searchRepository: any SearchRepository
     let searchHistoryRepository: any SearchHistoryRepository
     let userRepository: any UserRepository
     let libraryExportService: any LibraryExportService
@@ -34,6 +35,7 @@ struct AuthenticatedAppView: View {
                 SearchView(
                     videoRepository: videoRepository,
                     folderRepository: folderRepository,
+                    searchRepository: searchRepository,
                     searchHistoryRepository: searchHistoryRepository
                 )
                 .id(libraryRevision)

@@ -35,6 +35,7 @@ struct ContentView: View {
                         user: user,
                         videoRepository: container.videoItemRepository,
                         folderRepository: container.folderRepository,
+                        searchRepository: container.searchRepository,
                         searchHistoryRepository: container.searchHistoryRepository,
                         userRepository: container.userRepository,
                         libraryExportService: container.libraryExportService,
