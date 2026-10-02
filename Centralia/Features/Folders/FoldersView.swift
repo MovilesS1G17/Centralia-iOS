@@ -14,20 +14,24 @@ struct FoldersView: View {
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let suggestionPipeline: any VideoImportPipeline
+    private let analytics: any AnalyticsTracking
     private let libraryChanged: () -> Void
 
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         suggestionPipeline: any VideoImportPipeline,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         libraryChanged: @escaping () -> Void = {}
     ) {
         _viewModel = State(
             initialValue: FoldersViewModel(
                 videoRepository: videoRepository,
-                folderRepository: folderRepository
+                folderRepository: folderRepository,
+                analytics: analytics
             )
         )
+        self.analytics = analytics
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.suggestionPipeline = suggestionPipeline
@@ -59,6 +63,7 @@ struct FoldersView: View {
                         folder: folder,
                         videoRepository: videoRepository,
                         folderRepository: folderRepository,
+                        analytics: analytics,
                         folderChanged: {
                             Task { await viewModel.applyFolderChange() }
                         }
@@ -78,6 +83,7 @@ struct FoldersView: View {
                 }
             }
             .task {
+                viewModel.trackScreenViewed()
                 await viewModel.load()
             }
             .sheet(isPresented: $showsNewFolder) {

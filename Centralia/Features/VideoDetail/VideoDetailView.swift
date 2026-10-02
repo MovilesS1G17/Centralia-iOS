@@ -21,6 +21,7 @@ struct VideoDetailView: View {
         video: VideoItem,
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         videoChanged: @escaping (VideoItem) -> Void = { _ in },
         videoDeleted: @escaping (VideoItem) -> Void = { _ in }
     ) {
@@ -28,7 +29,8 @@ struct VideoDetailView: View {
             initialValue: VideoDetailViewModel(
                 video: video,
                 videoRepository: videoRepository,
-                folderRepository: folderRepository
+                folderRepository: folderRepository,
+                analytics: analytics
             )
         )
         self.videoRepository = videoRepository
@@ -39,6 +41,7 @@ struct VideoDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
+                loadFailureBanner
                 preview
                 metadata
                 organization
@@ -83,6 +86,7 @@ struct VideoDetailView: View {
             }
         }
         .task {
+            viewModel.trackScreenViewed()
             await viewModel.load()
         }
         .sheet(isPresented: $showsTagEditor) {
@@ -323,6 +327,26 @@ struct VideoDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private var loadFailureBanner: some View {
+        if let message = viewModel.loadFailureMessage {
+            HStack(alignment: .firstTextBaseline, spacing: CentraliaTheme.Spacing.small) {
+                Image(systemName: "exclamationmark.triangle")
+                    .accessibilityHidden(true)
+                Text(message)
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Retry") {
+                    Task { await viewModel.load() }
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+            .padding(CentraliaTheme.Spacing.small)
+            .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
+            .accessibilityElement(children: .combine)
+        }
+    }
+
     private var failureBinding: Binding<Bool> {
         Binding(
             get: { viewModel.failureMessage != nil },
@@ -337,6 +361,7 @@ struct VideoDetailView: View {
     private func openSourceVideo() {
         openURL(viewModel.video.sourceURL) { accepted in
             if !accepted {
+                viewModel.trackPlayFailed(reason: "open_failed")
                 showsOpenFailure = true
             } else {
                 Task { await videoRepository.recordSourceOpened(id: viewModel.video.id) }

@@ -22,13 +22,15 @@ struct SaveVideoView: View {
         pipeline: any VideoImportPipeline,
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         videoSaved: @escaping () -> Void
     ) {
         _viewModel = State(
             initialValue: SaveVideoViewModel(
                 pipeline: pipeline,
                 videoRepository: videoRepository,
-                folderRepository: folderRepository
+                folderRepository: folderRepository,
+                analytics: analytics
             )
         )
         self.videoRepository = videoRepository
@@ -53,6 +55,7 @@ struct SaveVideoView: View {
         }
         .interactiveDismissDisabled(viewModel.isDraftDirty && savedVideo == nil)
         .task {
+            viewModel.trackScreenViewed()
             await viewModel.loadFolders()
         }
         .task(id: viewModel.urlText) {
@@ -80,11 +83,17 @@ struct SaveVideoView: View {
             "Couldn’t save video",
             isPresented: saveFailureBinding
         ) {
-            Button("Try Again") {
-                save(organized: true)
-            }
-            Button("Cancel", role: .cancel) {
-                viewModel.dismissSaveFailure()
+            if viewModel.saveFailureIsRetryable {
+                Button("Try Again") {
+                    save(organized: viewModel.lastSaveWasOrganized)
+                }
+                Button("Cancel", role: .cancel) {
+                    viewModel.dismissSaveFailure()
+                }
+            } else {
+                Button("OK", role: .cancel) {
+                    viewModel.dismissSaveFailure()
+                }
             }
         } message: {
             Text(viewModel.saveFailureMessage ?? "Please try again.")

@@ -14,19 +14,23 @@ struct SearchView: View {
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let analytics: any AnalyticsTracking
 
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
-        searchHistoryRepository: any SearchHistoryRepository
+        searchHistoryRepository: any SearchHistoryRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         _viewModel = State(
             initialValue: SearchViewModel(
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
-                searchHistoryRepository: searchHistoryRepository
+                searchHistoryRepository: searchHistoryRepository,
+                analytics: analytics
             )
         )
+        self.analytics = analytics
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
     }
@@ -63,6 +67,7 @@ struct SearchView: View {
                         video: video,
                         videoRepository: videoRepository,
                         folderRepository: folderRepository,
+                        analytics: analytics,
                         videoChanged: { updatedVideo in
                             viewModel.apply(updatedVideo)
                         },
@@ -74,7 +79,15 @@ struct SearchView: View {
                 }
             }
             .task {
+                viewModel.trackScreenViewed()
                 await viewModel.load()
+            }
+            .alert("Couldn’t update your library", isPresented: failureBinding) {
+                Button("OK") {
+                    viewModel.dismissFailure()
+                }
+            } message: {
+                Text(viewModel.failureMessage ?? FeatureError.genericMessage)
             }
             .sheet(item: $movingVideo) { video in
                 MoveVideoSheet(video: video, folders: viewModel.folders) { folderID in
@@ -502,6 +515,17 @@ struct SearchView: View {
                 Text(title)
             }
         }
+    }
+
+    private var failureBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.failureMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    viewModel.dismissFailure()
+                }
+            }
+        )
     }
 
     private var deletionDialogBinding: Binding<Bool> {

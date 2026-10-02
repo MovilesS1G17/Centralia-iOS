@@ -1,12 +1,6 @@
 import Foundation
 import Observation
 
-enum SearchFolderFilter: Equatable, Sendable {
-    case all
-    case unorganized
-    case folder(UUID)
-}
-
 @Observable
 final class SearchViewModel {
     enum LoadState: Equatable {
@@ -19,8 +13,11 @@ final class SearchViewModel {
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let searchHistoryRepository: any SearchHistoryRepository
+    private let analytics: any AnalyticsTracking
+    private var hasTrackedScreen = false
 
     private(set) var state: LoadState = .idle
+    private(set) var failureMessage: String?
     private(set) var videos: [VideoItem] = []
     private(set) var folders: [LibraryFolder] = []
     private(set) var recentSearches: [String] = []
@@ -32,52 +29,22 @@ final class SearchViewModel {
     var selectedFolder: SearchFolderFilter = .all
     var selectedTags: Set<String> = []
 
+    var criteria: VideoSearchCriteria {
+        VideoSearchCriteria(
+            text: query,
+            platform: selectedPlatform,
+            creator: selectedCreator,
+            folder: selectedFolder,
+            tags: selectedTags
+        )
+    }
+
     var filteredVideos: [VideoItem] {
-        let terms = query
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-
-        return videos.filter { video in
-            guard selectedPlatform == nil || video.platform == selectedPlatform else {
-                return false
-            }
-
-            guard selectedCreator == nil || video.creator == selectedCreator else {
-                return false
-            }
-
-            switch selectedFolder {
-            case .all:
-                break
-            case .unorganized where video.folderID != nil:
-                return false
-            case .unorganized:
-                break
-            case let .folder(folderID) where video.folderID != folderID:
-                return false
-            case .folder:
-                break
-            }
-
-            guard selectedTags.isSubset(of: Set(video.tags)) else {
-                return false
-            }
-
-            guard !terms.isEmpty else { return true }
-
-            let searchableValues = [
-                video.displayTitle,
-                video.creator,
-                folderName(for: video.folderID) ?? ""
-            ] + video.tags
-
-            return terms.allSatisfy { term in
-                searchableValues.contains { value in
-                    value.localizedStandardContains(term)
-                }
-            }
-        }
+        VideoSearch.filter(
+            videos,
+            criteria: criteria,
+            folderNames: Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0.name) })
+        )
     }
 
     var availableCreators: [String] {
@@ -87,9 +54,7 @@ final class SearchViewModel {
     }
 
     var availableTags: [String] {
-        Array(Set(videos.flatMap(\.tags))).sorted {
-            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-        }
+        TagCatalog.available(from: videos)
     }
 
     var hasActiveFilters: Bool {
@@ -102,11 +67,27 @@ final class SearchViewModel {
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
-        searchHistoryRepository: any SearchHistoryRepository
+        searchHistoryRepository: any SearchHistoryRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.searchHistoryRepository = searchHistoryRepository
+        self.analytics = analytics
+    }
+
+    func trackScreenViewed() {
+        guard !hasTrackedScreen else { return }
+        hasTrackedScreen = true
+        analytics.track(.screenViewed(.search))
+    }
+
+    func dismissFailure() {
+        failureMessage = nil
+    }
+
+    private func presentFailure(_ error: Error) {
+        failureMessage = FeatureError.report(error, screen: .search, analytics: analytics)
     }
 
     func load() async {
@@ -119,7 +100,8 @@ final class SearchViewModel {
             recentSearches = try await searchHistoryRepository.recentSearches()
             state = .loaded
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(FeatureError.message(for: error))
+            analytics.track(.errorShown(screen: .search, code: FeatureError.code(for: error)))
         }
     }
 
@@ -136,7 +118,7 @@ final class SearchViewModel {
             try await searchHistoryRepository.recordSearch(trimmedQuery)
             recentSearches = try await searchHistoryRepository.recentSearches()
         } catch {
-            state = .failed(error.localizedDescription)
+            presentFailure(error)
         }
     }
 
@@ -150,7 +132,7 @@ final class SearchViewModel {
             try await searchHistoryRepository.clearSearchHistory()
             recentSearches = []
         } catch {
-            state = .failed(error.localizedDescription)
+            presentFailure(error)
         }
     }
 
@@ -180,7 +162,7 @@ final class SearchViewModel {
             videos.removeAll { $0.id == video.id }
             recentlyDeletedVideo = video
         } catch {
-            state = .failed(error.localizedDescription)
+            presentFailure(error)
         }
     }
 
@@ -193,7 +175,7 @@ final class SearchViewModel {
             videos.sort { $0.savedAt > $1.savedAt }
             recentlyDeletedVideo = nil
         } catch {
-            state = .failed(error.localizedDescription)
+            presentFailure(error)
         }
     }
 
@@ -221,7 +203,7 @@ final class SearchViewModel {
 
             videos[index].folderID = folderID
         } catch {
-            state = .failed(error.localizedDescription)
+            presentFailure(error)
         }
     }
 

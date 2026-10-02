@@ -5,6 +5,8 @@ import Observation
 final class VideoDetailViewModel {
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let analytics: any AnalyticsTracking
+    private var hasTrackedScreen = false
 
     private(set) var video: VideoItem
     private(set) var folders: [LibraryFolder] = []
@@ -12,6 +14,8 @@ final class VideoDetailViewModel {
     private(set) var isLoading = false
     private(set) var isMutating = false
     private(set) var failureMessage: String?
+    /// Set when the refresh on open fails; the saved copy stays visible.
+    private(set) var loadFailureMessage: String?
 
     var folderName: String? {
         guard let folderID = video.folderID else { return nil }
@@ -36,17 +40,30 @@ final class VideoDetailViewModel {
     init(
         video: VideoItem,
         videoRepository: any VideoItemRepository,
-        folderRepository: any FolderRepository
+        folderRepository: any FolderRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         self.video = video
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.analytics = analytics
+    }
+
+    func trackScreenViewed() {
+        guard !hasTrackedScreen else { return }
+        hasTrackedScreen = true
+        analytics.track(.screenViewed(.videoDetail))
+    }
+
+    /// The original link could not be opened in its app.
+    func trackPlayFailed(reason: String) {
+        analytics.track(.playFailed(videoID: video.id, platform: video.platform, reason: reason))
     }
 
     func load() async {
         guard !isLoading else { return }
         isLoading = true
-        failureMessage = nil
+        loadFailureMessage = nil
         defer { isLoading = false }
 
         do {
@@ -58,9 +75,10 @@ final class VideoDetailViewModel {
             if let currentVideo = videos.first(where: { $0.id == video.id }) {
                 video = currentVideo
             }
-            availableTags = Self.sortedTags(from: videos)
+            availableTags = TagCatalog.available(from: videos)
         } catch {
-            failureMessage = error.localizedDescription
+            loadFailureMessage = FeatureError.message(for: error)
+            analytics.track(.errorShown(screen: .videoDetail, code: FeatureError.code(for: error)))
         }
     }
 
@@ -68,8 +86,8 @@ final class VideoDetailViewModel {
     func updateTags(_ tags: [String]) async -> Bool {
         await mutate {
             try await videoRepository.updateTags(id: video.id, tags: tags)
-            video.tags = Self.normalizedTags(tags)
-            availableTags = Self.sortedTags(including: availableTags + video.tags)
+            video.tags = TagCatalog.normalize(tags)
+            availableTags = TagCatalog.sorted(TagCatalog.normalize(availableTags + video.tags))
         }
     }
 
@@ -111,35 +129,9 @@ final class VideoDetailViewModel {
             try await operation()
             return true
         } catch {
-            failureMessage = error.localizedDescription
+            failureMessage = FeatureError.message(for: error)
+            analytics.track(.errorShown(screen: .videoDetail, code: FeatureError.code(for: error)))
             return false
         }
-    }
-
-    private static func sortedTags(from videos: [VideoItem]) -> [String] {
-        sortedTags(including: videos.flatMap(\.tags))
-    }
-
-    private static func sortedTags(including tags: [String]) -> [String] {
-        normalizedTags(tags).sorted {
-            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-        }
-    }
-
-    private static func normalizedTags(_ tags: [String]) -> [String] {
-        var normalized: [String] = []
-
-        for value in tags {
-            let tag = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !tag.isEmpty,
-                  !normalized.contains(where: {
-                      $0.localizedCaseInsensitiveCompare(tag) == .orderedSame
-                  }) else {
-                continue
-            }
-            normalized.append(tag)
-        }
-
-        return normalized
     }
 }

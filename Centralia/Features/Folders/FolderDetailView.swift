@@ -14,21 +14,25 @@ struct FolderDetailView: View {
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let analytics: any AnalyticsTracking
     private let folderChanged: () -> Void
 
     init(
         folder: LibraryFolder,
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         folderChanged: @escaping () -> Void = {}
     ) {
         _viewModel = State(
             initialValue: FolderDetailViewModel(
                 folder: folder,
                 videoRepository: videoRepository,
-                folderRepository: folderRepository
+                folderRepository: folderRepository,
+                analytics: analytics
             )
         )
+        self.analytics = analytics
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.folderChanged = folderChanged
@@ -54,6 +58,7 @@ struct FolderDetailView: View {
         .foregroundStyle(Color.centraliaInk)
         .toolbar(.hidden, for: .navigationBar)
         .task {
+            viewModel.trackScreenViewed()
             await viewModel.load()
         }
         .navigationDestination(item: $selectedVideo) { video in
@@ -61,6 +66,7 @@ struct FolderDetailView: View {
                 video: video,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                analytics: analytics,
                 videoChanged: { updatedVideo in
                     viewModel.apply(updatedVideo)
                     folderChanged()

@@ -36,7 +36,7 @@ final class SaveConfirmationViewModel {
             video.note = trimmedNote
             return true
         } catch {
-            failureMessage = error.localizedDescription
+            failureMessage = FeatureError.message(for: error)
             return false
         }
     }

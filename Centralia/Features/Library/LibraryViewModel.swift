@@ -51,8 +51,11 @@ final class LibraryViewModel {
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let analytics: any AnalyticsTracking
+    private var hasTrackedScreen = false
 
     private(set) var state: LoadState = .idle
+    private(set) var failureMessage: String?
     private(set) var videos: [VideoItem] = []
     private(set) var folders: [LibraryFolder] = []
     private(set) var recentlyDeletedVideo: VideoItem?
@@ -64,10 +67,30 @@ final class LibraryViewModel {
 
     init(
         videoRepository: any VideoItemRepository,
-        folderRepository: any FolderRepository
+        folderRepository: any FolderRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.analytics = analytics
+    }
+
+    var isLibraryEmpty: Bool {
+        state == .loaded && videos.isEmpty
+    }
+
+    func trackScreenViewed() {
+        guard !hasTrackedScreen else { return }
+        hasTrackedScreen = true
+        analytics.track(.screenViewed(.library))
+    }
+
+    func dismissFailure() {
+        failureMessage = nil
+    }
+
+    private func presentFailure(_ error: Error) {
+        failureMessage = FeatureError.report(error, screen: .library, analytics: analytics)
     }
 
     func load() async {
@@ -79,7 +102,8 @@ final class LibraryViewModel {
             folders = try await folderRepository.folders()
             state = .loaded
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(FeatureError.message(for: error))
+            analytics.track(.errorShown(screen: .library, code: FeatureError.code(for: error)))
         }
     }
 
@@ -94,7 +118,7 @@ final class LibraryViewModel {
             videos.removeAll { $0.id == video.id }
             recentlyDeletedVideo = video
         } catch {
-            state = .failed(error.localizedDescription)
+            presentFailure(error)
         }
     }
 
@@ -107,7 +131,7 @@ final class LibraryViewModel {
             videos.sort { $0.savedAt > $1.savedAt }
             recentlyDeletedVideo = nil
         } catch {
-            state = .failed(error.localizedDescription)
+            presentFailure(error)
         }
     }
 
@@ -135,7 +159,7 @@ final class LibraryViewModel {
 
             videos[index].folderID = folderID
         } catch {
-            state = .failed(error.localizedDescription)
+            presentFailure(error)
         }
     }
 }
