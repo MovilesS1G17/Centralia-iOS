@@ -14,6 +14,7 @@ struct LibraryView: View {
     @State private var movingVideo: VideoItem?
 
     private let presentSave: () -> Void
+    private let userDisplayName: String?
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let analytics: any AnalyticsTracking
@@ -23,6 +24,7 @@ struct LibraryView: View {
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         selectedTab: Binding<AppTab>,
+        userDisplayName: String? = nil,
         playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         presentSave: @escaping () -> Void
@@ -40,6 +42,7 @@ struct LibraryView: View {
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.presentSave = presentSave
+        self.userDisplayName = userDisplayName
     }
 
     var body: some View {
@@ -47,6 +50,8 @@ struct LibraryView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
                     LibraryHeader(presentSave: presentSave)
+
+                    LibraryGreeting(displayName: userDisplayName)
 
                     LibrarySearchEntry {
                         selectedTab = .search

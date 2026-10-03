@@ -25,6 +25,7 @@ struct AuthenticatedAppView: View {
                     videoRepository: videoRepository,
                     folderRepository: folderRepository,
                     selectedTab: $selectedTab,
+                    userDisplayName: user.displayName,
                     presentSave: { presentsSave = true }
                 )
                 .id(libraryRevision)

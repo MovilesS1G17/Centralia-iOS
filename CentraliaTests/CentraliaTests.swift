@@ -1065,4 +1065,80 @@ struct CentraliaTests {
         #expect((json["profile"] as? [String: Any])?["displayName"] as? String == "David Caro")
         #expect(json["notificationPreferences"] != nil)
     }
+
+    @Test func greetingBoundariesFollowThePhoneClock() {
+        let expected: [(Int, TimeOfDayGreeting.PartOfDay)] = [
+            (4, .night), (5, .morning), (11, .morning), (12, .afternoon), (17, .afternoon),
+            (18, .evening), (21, .evening), (22, .night), (0, .night),
+        ]
+        for (hour, part) in expected {
+            #expect(TimeOfDayGreeting.partOfDay(hour: hour) == part)
+        }
+    }
+
+    @Test func greetingUsesFirstNameAndIsAlwaysEnglish() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Bogota")!
+        func at(_ hour: Int) -> Date {
+            calendar.date(
+                from: DateComponents(year: 2026, month: 10, day: 1, hour: hour, minute: 30)
+            )!
+        }
+
+        let afternoon = TimeOfDayGreeting.greeting(
+            at: at(15), displayName: "David Caro", calendar: calendar
+        )
+        #expect(afternoon.title == "Good afternoon, David")
+        #expect(afternoon.subtitle == "A good moment to catch up on your shorts.")
+        #expect(TimeOfDayGreeting.greeting(at: at(7), displayName: "María", calendar: calendar).title == "Good morning, María")
+        #expect(TimeOfDayGreeting.greeting(at: at(13), displayName: "  ", calendar: calendar).title == "Good afternoon")
+        #expect(TimeOfDayGreeting.greeting(at: at(23), displayName: "Ana", calendar: calendar).title == "Good evening, Ana")
+        #expect(TimeOfDayGreeting.greeting(at: at(2), calendar: calendar).title == "Good evening")
+        #expect(TimeOfDayGreeting.firstName("") == nil)
+    }
+}
+
+@MainActor
+struct ShakeDetectorTests {
+    @Test func phoneLyingStillNeverShakes() {
+        var detector = ShakeDetector()
+        for time in stride(from: Int64(0), through: 3000, by: 20) {
+            let didShake = detector.register(x: 0, y: 0, z: 1, atMillis: time)
+            #expect(!didShake)
+        }
+    }
+
+    @Test func twoStrongJoltsWithinASecondAreAShake() {
+        var detector = ShakeDetector()
+        let firstJolt = detector.register(x: 3, y: 0.5, z: 1, atMillis: 0)
+        let sameJolt = detector.register(x: 3, y: 0.5, z: 1, atMillis: 40)
+        let secondJolt = detector.register(x: -3, y: 0, z: 1, atMillis: 300)
+        #expect(!firstJolt)
+        #expect(!sameJolt)
+        #expect(secondJolt)
+    }
+
+    @Test func aSingleBumpOrSlowJoltsDoNotCount() {
+        var detector = ShakeDetector()
+        let firstJolt = detector.register(x: 3, y: 0, z: 0, atMillis: 0)
+        let slowSecondJolt = detector.register(x: 3, y: 0, z: 0, atMillis: 1500)
+        let weakJolt = detector.register(x: 2, y: 1, z: 1, atMillis: 1700)
+        #expect(!firstJolt)
+        #expect(!slowSecondJolt)
+        #expect(!weakJolt)
+    }
+
+    @Test func oneShakeUndoesOnlyOnce() {
+        var detector = ShakeDetector()
+        _ = detector.register(x: 3, y: 0, z: 0, atMillis: 0)
+        let firstShake = detector.register(x: 3, y: 0, z: 0, atMillis: 200)
+        let cooldownReadingOne = detector.register(x: 3, y: 0, z: 0, atMillis: 400)
+        let cooldownReadingTwo = detector.register(x: 3, y: 0, z: 0, atMillis: 600)
+        _ = detector.register(x: 3, y: 0, z: 0, atMillis: 2000)
+        let secondShake = detector.register(x: 3, y: 0, z: 0, atMillis: 2200)
+        #expect(firstShake)
+        #expect(!cooldownReadingOne)
+        #expect(!cooldownReadingTwo)
+        #expect(secondShake)
+    }
 }
