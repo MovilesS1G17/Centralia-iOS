@@ -87,20 +87,18 @@ struct CentraliaTests {
     @Test func authenticationValidation() {
         #expect(AuthenticationValidation.emailError(for: "person@example.com") == nil)
         #expect(AuthenticationValidation.emailError(for: "not-an-email") != nil)
-        #expect(AuthenticationValidation.passwordError(for: "12345678") == nil)
+        #expect(AuthenticationValidation.passwordError(for: "centralia2026") == nil)
         #expect(AuthenticationValidation.passwordError(for: "short") != nil)
-        #expect(AuthenticationValidation.displayNameError(for: "Centralia User") == nil)
-        #expect(AuthenticationValidation.displayNameError(for: "   ") == "Enter your name.")
+        #expect(AuthenticationValidation.passwordError(for: "12345678") == AuthenticationValidation.weakPassword)
     }
 
     @Test func signUpRejectsMismatchedPasswordsBeforeCallingRepository() async {
         let viewModel = SignUpViewModel(
             repository: MockAuthenticationRepository(delay: .zero)
         )
-        viewModel.displayName = "Centralia User"
         viewModel.email = "person@example.com"
-        viewModel.password = "password-one"
-        viewModel.passwordConfirmation = "password-two"
+        viewModel.password = "password-one1"
+        viewModel.passwordConfirmation = "password-two2"
 
         let user = await viewModel.createAccount()
 
@@ -109,14 +107,13 @@ struct CentraliaTests {
         #expect(viewModel.isSubmittingEmail == false)
     }
 
-    @Test func signUpRequiresEmailVerificationAndRetainsTheEnteredName() async {
+    @Test func signUpRequiresEmailVerification() async {
         let viewModel = SignUpViewModel(
             repository: MockAuthenticationRepository(delay: .zero)
         )
-        viewModel.displayName = "  David Caro  "
         viewModel.email = "david@example.com"
-        viewModel.password = "valid-password"
-        viewModel.passwordConfirmation = "valid-password"
+        viewModel.password = "valid-password1"
+        viewModel.passwordConfirmation = "valid-password1"
 
         let outcome = await viewModel.createAccount()
 
@@ -125,8 +122,7 @@ struct CentraliaTests {
                 EmailVerificationContext(
                     email: "david@example.com",
                     resendAvailableIn: 60,
-                    origin: .registration,
-                    intendedDisplayName: "David Caro"
+                    origin: .registration
                 )
             )
         )
@@ -140,10 +136,9 @@ struct CentraliaTests {
             )
         )
         let viewModel = SignUpViewModel(repository: repository)
-        viewModel.displayName = "Centralia User"
         viewModel.email = "person@example.com"
-        viewModel.password = "a-valid-password"
-        viewModel.passwordConfirmation = "a-valid-password"
+        viewModel.password = "a-valid-password1"
+        viewModel.passwordConfirmation = "a-valid-password1"
 
         let user = await viewModel.createAccount()
 
@@ -181,20 +176,18 @@ struct CentraliaTests {
                 EmailVerificationContext(
                     email: "unverified@example.com",
                     resendAvailableIn: 60,
-                    origin: .signIn,
-                    intendedDisplayName: nil
+                    origin: .signIn
                 )
             )
         )
         #expect(viewModel.failureMessage == nil)
     }
 
-    @Test func emailVerificationAppliesTheNameCapturedDuringRegistration() async {
+    @Test func emailVerificationKeepsTheBackendDisplayName() async {
         let context = EmailVerificationContext(
             email: "david@example.com",
             resendAvailableIn: 60,
-            origin: .registration,
-            intendedDisplayName: "David Caro"
+            origin: .registration
         )
         let viewModel = EmailVerificationViewModel(
             repository: MockAuthenticationRepository(delay: .zero),
@@ -204,7 +197,7 @@ struct CentraliaTests {
 
         let user = await viewModel.verify()
 
-        #expect(user?.displayName == "David Caro")
+        #expect(user?.displayName == "David")
         #expect(viewModel.failureMessage == nil)
     }
 

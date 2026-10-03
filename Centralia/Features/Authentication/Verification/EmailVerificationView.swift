@@ -133,8 +133,7 @@ private struct UnsupportedVerificationRepository: V3AuthenticationRepository {
         context: EmailVerificationContext(
             email: "you@example.com",
             resendAvailableIn: 60,
-            origin: .registration,
-            intendedDisplayName: "Centralia User"
+            origin: .registration
         ),
         cancel: {},
         completeAuthentication: { _ in }
