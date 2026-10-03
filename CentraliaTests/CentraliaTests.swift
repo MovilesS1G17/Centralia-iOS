@@ -2,6 +2,37 @@ import Foundation
 import Testing
 @testable import Centralia
 
+struct VideoThumbnailTests {
+    @Test func usesBackendThumbnailBeforeFallback() {
+        let thumbnail = URL(string: "https://cdn.centralia.test/cover.jpg")!
+        var video = LibraryFixtures.video(
+            url: "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+            platform: .youtubeShort
+        )
+        video.thumbnailURL = thumbnail
+
+        #expect(video.coverURL == thumbnail)
+    }
+
+    @Test func derivesYouTubeCoverForOlderVideo() {
+        let video = LibraryFixtures.video(
+            url: "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+            platform: .youtubeShort
+        )
+
+        #expect(video.coverURL?.absoluteString == "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg")
+    }
+
+    @Test func doesNotInventNonYouTubeThumbnail() {
+        let video = LibraryFixtures.video(
+            url: "https://www.instagram.com/reel/Centralia1/",
+            platform: .instagramReel
+        )
+
+        #expect(video.coverURL == nil)
+    }
+}
+
 @MainActor
 private struct FailingAuthenticationRepository: AuthenticationRepository {
     let error: AuthenticationError

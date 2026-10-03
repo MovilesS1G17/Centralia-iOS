@@ -72,7 +72,8 @@ struct VideoDTO: Decodable {
             transcript: transcript, extractedOnScreenText: extractedOnScreenText,
             generatedSummary: generatedSummary, customTitle: customTitle,
             folderID: folderID, tags: tags, note: note, savedAt: savedAt,
-            analysisStatus: analysisStatus
+            analysisStatus: analysisStatus, thumbnailURL: thumbnailURL,
+            embedURL: embedURL
         )
     }
 }

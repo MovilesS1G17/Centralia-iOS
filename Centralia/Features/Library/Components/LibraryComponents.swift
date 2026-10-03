@@ -146,10 +146,16 @@ struct LibraryVideoCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
                 Button(action: openDetail) {
-                    cardColor
-                        .frame(maxWidth: .infinity)
-                        .frame(height: previewHeight)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        cardColor
+                        VideoCoverImage(url: video.coverURL)
+                        if video.coverURL != nil {
+                            VideoCoverGradient()
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: previewHeight)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open \(video.displayTitle)")
