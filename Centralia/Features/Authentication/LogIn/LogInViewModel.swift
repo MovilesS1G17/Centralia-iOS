@@ -21,7 +21,7 @@ final class LogInViewModel {
         self.repository = repository
     }
 
-    func logIn() async -> AuthenticatedUser? {
+    func logIn() async -> LogInOutcome? {
         guard !isBusy, validateForm() else {
             return nil
         }
@@ -31,12 +31,21 @@ final class LogInViewModel {
         defer { isSubmittingEmail = false }
 
         do {
-            return try await repository.logIn(
+            let user = try await repository.logIn(
                 email: AuthenticationValidation.normalizedEmail(email),
                 password: password
             )
+            return .authenticated(user)
         } catch is CancellationError {
             return nil
+        } catch let AuthenticationError.verificationRequired(email, resendAvailableIn) {
+            return .emailVerification(
+                EmailVerificationContext(
+                    email: email.isEmpty ? AuthenticationValidation.normalizedEmail(self.email) : email,
+                    resendAvailableIn: resendAvailableIn,
+                    origin: .signIn
+                )
+            )
         } catch let error as AuthenticationError {
             present(error)
             return nil

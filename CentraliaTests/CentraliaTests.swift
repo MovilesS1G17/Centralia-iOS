@@ -2,6 +2,37 @@ import Foundation
 import Testing
 @testable import Centralia
 
+struct VideoThumbnailTests {
+    @Test func usesBackendThumbnailBeforeFallback() {
+        let thumbnail = URL(string: "https://cdn.centralia.test/cover.jpg")!
+        var video = LibraryFixtures.video(
+            url: "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+            platform: .youtubeShort
+        )
+        video.thumbnailURL = thumbnail
+
+        #expect(video.coverURL == thumbnail)
+    }
+
+    @Test func derivesYouTubeCoverForOlderVideo() {
+        let video = LibraryFixtures.video(
+            url: "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+            platform: .youtubeShort
+        )
+
+        #expect(video.coverURL?.absoluteString == "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg")
+    }
+
+    @Test func doesNotInventNonYouTubeThumbnail() {
+        let video = LibraryFixtures.video(
+            url: "https://www.instagram.com/reel/Centralia1/",
+            platform: .instagramReel
+        )
+
+        #expect(video.coverURL == nil)
+    }
+}
+
 @MainActor
 private struct FailingAuthenticationRepository: AuthenticationRepository {
     let error: AuthenticationError
@@ -87,20 +118,18 @@ struct CentraliaTests {
     @Test func authenticationValidation() {
         #expect(AuthenticationValidation.emailError(for: "person@example.com") == nil)
         #expect(AuthenticationValidation.emailError(for: "not-an-email") != nil)
-        #expect(AuthenticationValidation.passwordError(for: "12345678") == nil)
+        #expect(AuthenticationValidation.passwordError(for: "centralia2026") == nil)
         #expect(AuthenticationValidation.passwordError(for: "short") != nil)
-        #expect(AuthenticationValidation.displayNameError(for: "Centralia User") == nil)
-        #expect(AuthenticationValidation.displayNameError(for: "   ") == "Enter your name.")
+        #expect(AuthenticationValidation.passwordError(for: "12345678") == AuthenticationValidation.weakPassword)
     }
 
     @Test func signUpRejectsMismatchedPasswordsBeforeCallingRepository() async {
         let viewModel = SignUpViewModel(
             repository: MockAuthenticationRepository(delay: .zero)
         )
-        viewModel.displayName = "Centralia User"
         viewModel.email = "person@example.com"
-        viewModel.password = "password-one"
-        viewModel.passwordConfirmation = "password-two"
+        viewModel.password = "password-one1"
+        viewModel.passwordConfirmation = "password-two2"
 
         let user = await viewModel.createAccount()
 
@@ -109,18 +138,25 @@ struct CentraliaTests {
         #expect(viewModel.isSubmittingEmail == false)
     }
 
-    @Test func signUpUsesTheEnteredNameForTheAuthenticatedUser() async {
+    @Test func signUpRequiresEmailVerification() async {
         let viewModel = SignUpViewModel(
             repository: MockAuthenticationRepository(delay: .zero)
         )
-        viewModel.displayName = "  David Caro  "
         viewModel.email = "david@example.com"
-        viewModel.password = "valid-password"
-        viewModel.passwordConfirmation = "valid-password"
+        viewModel.password = "valid-password1"
+        viewModel.passwordConfirmation = "valid-password1"
 
-        let user = await viewModel.createAccount()
+        let outcome = await viewModel.createAccount()
 
-        #expect(user?.displayName == "David Caro")
+        #expect(
+            outcome == .emailVerification(
+                EmailVerificationContext(
+                    email: "david@example.com",
+                    resendAvailableIn: 60,
+                    origin: .registration
+                )
+            )
+        )
     }
 
     @Test func signUpShowsServerValidationOnTheMatchingField() async {
@@ -131,10 +167,9 @@ struct CentraliaTests {
             )
         )
         let viewModel = SignUpViewModel(repository: repository)
-        viewModel.displayName = "Centralia User"
         viewModel.email = "person@example.com"
-        viewModel.password = "a-valid-password"
-        viewModel.passwordConfirmation = "a-valid-password"
+        viewModel.password = "a-valid-password1"
+        viewModel.passwordConfirmation = "a-valid-password1"
 
         let user = await viewModel.createAccount()
 
@@ -156,6 +191,60 @@ struct CentraliaTests {
         #expect(viewModel.email == "fail@example.com")
         #expect(viewModel.password == "valid-password")
         #expect(viewModel.failureMessage == AuthenticationError.invalidCredentials.localizedDescription)
+    }
+
+    @Test func unverifiedLoginNavigatesToEmailVerification() async {
+        let viewModel = LogInViewModel(
+            repository: MockAuthenticationRepository(delay: .zero)
+        )
+        viewModel.email = "unverified@example.com"
+        viewModel.password = "valid-password"
+
+        let outcome = await viewModel.logIn()
+
+        #expect(
+            outcome == .emailVerification(
+                EmailVerificationContext(
+                    email: "unverified@example.com",
+                    resendAvailableIn: 60,
+                    origin: .signIn
+                )
+            )
+        )
+        #expect(viewModel.failureMessage == nil)
+    }
+
+    @Test func emailVerificationKeepsTheBackendDisplayName() async {
+        let context = EmailVerificationContext(
+            email: "david@example.com",
+            resendAvailableIn: 60,
+            origin: .registration
+        )
+        let viewModel = EmailVerificationViewModel(
+            repository: MockAuthenticationRepository(delay: .zero),
+            context: context
+        )
+        viewModel.code = "123456"
+
+        let user = await viewModel.verify()
+
+        #expect(user?.displayName == "David")
+        #expect(viewModel.failureMessage == nil)
+    }
+
+    @Test func passwordResetRequiresAValidVerificationCodeAndPassword() async {
+        let viewModel = PasswordResetViewModel(
+            repository: MockAuthenticationRepository(delay: .zero),
+            initialEmail: "person@example.com"
+        )
+        viewModel.code = "123"
+        viewModel.newPassword = "new-password"
+        viewModel.passwordConfirmation = "new-password"
+
+        let user = await viewModel.confirmReset()
+
+        #expect(user == nil)
+        #expect(viewModel.codeError == "Enter the 6-digit code from your email.")
     }
 
     @Test func socialAuthenticationCompletesSession() async throws {
@@ -851,7 +940,7 @@ struct CentraliaTests {
         #expect(viewModel.storageUsage.percentage == 48)
     }
 
-    @Test func profileDisplayNameUpdatesWithoutChangingEmail() async throws {
+    @Test func profileUpdatesNameAndEmail() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -886,12 +975,13 @@ struct CentraliaTests {
         await viewModel.load()
 
         let updatedUser = await viewModel.updateProfile(
-            displayName: "David Caro"
+            displayName: "David Caro",
+            email: "DAVID@EXAMPLE.COM"
         )
         #expect(updatedUser?.displayName == "David Caro")
-        #expect(updatedUser?.email == "demo@centralia.app")
+        #expect(updatedUser?.email == "david@example.com")
         #expect(viewModel.profile?.displayName == "David Caro")
-        #expect(viewModel.profile?.email == "demo@centralia.app")
+        #expect(viewModel.profile?.email == "david@example.com")
 
         var preferences = viewModel.notificationPreferences
         preferences.productUpdates = true
@@ -903,9 +993,12 @@ struct CentraliaTests {
             filename: "profile-persistence-users.json",
             delay: .zero
         )
+        let persistedProfile = try await reloadedRepository.profile(for: originalUser)
         let persistedPreferences = try await reloadedRepository.notificationPreferences(
             for: originalUser.id
         )
+        #expect(persistedProfile.displayName == "David Caro")
+        #expect(persistedProfile.email == "david@example.com")
         #expect(persistedPreferences.productUpdates)
         #expect(persistedPreferences.weeklyLibrarySummary == false)
     }
@@ -1002,5 +1095,126 @@ struct CentraliaTests {
         #expect((json["folders"] as? [[String: Any]])?.count == 4)
         #expect((json["profile"] as? [String: Any])?["displayName"] as? String == "David Caro")
         #expect(json["notificationPreferences"] != nil)
+    }
+
+    @Test func greetingBoundariesFollowThePhoneClock() {
+        let expected: [(Int, TimeOfDayGreeting.PartOfDay)] = [
+            (4, .night), (5, .morning), (11, .morning), (12, .afternoon), (17, .afternoon),
+            (18, .evening), (21, .evening), (22, .night), (0, .night),
+        ]
+        for (hour, part) in expected {
+            #expect(TimeOfDayGreeting.partOfDay(hour: hour) == part)
+        }
+    }
+
+    @Test func greetingUsesFirstNameAndIsAlwaysEnglish() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Bogota")!
+        func at(_ hour: Int) -> Date {
+            calendar.date(
+                from: DateComponents(year: 2026, month: 10, day: 1, hour: hour, minute: 30)
+            )!
+        }
+
+        let afternoon = TimeOfDayGreeting.greeting(
+            at: at(15), displayName: "David Caro", calendar: calendar
+        )
+        #expect(afternoon.title == "Good afternoon, David")
+        #expect(afternoon.subtitle == "A good moment to catch up on your shorts.")
+        #expect(TimeOfDayGreeting.greeting(at: at(7), displayName: "María", calendar: calendar).title == "Good morning, María")
+        #expect(TimeOfDayGreeting.greeting(at: at(13), displayName: "  ", calendar: calendar).title == "Good afternoon")
+        #expect(TimeOfDayGreeting.greeting(at: at(23), displayName: "Ana", calendar: calendar).title == "Good evening, Ana")
+        #expect(TimeOfDayGreeting.greeting(at: at(2), calendar: calendar).title == "Good evening")
+        #expect(TimeOfDayGreeting.firstName("") == nil)
+    }
+}
+
+@MainActor
+struct ShakeDetectorTests {
+    @Test func phoneLyingStillNeverShakes() {
+        var detector = ShakeDetector()
+        for time in stride(from: Int64(0), through: 3000, by: 20) {
+            let didShake = detector.register(x: 0, y: 0, z: 1, atMillis: time)
+            #expect(!didShake)
+        }
+    }
+
+    @Test func twoStrongJoltsWithinASecondAreAShake() {
+        var detector = ShakeDetector()
+        let firstJolt = detector.register(x: 3, y: 0.5, z: 1, atMillis: 0)
+        let sameJolt = detector.register(x: 3, y: 0.5, z: 1, atMillis: 40)
+        let secondJolt = detector.register(x: -3, y: 0, z: 1, atMillis: 300)
+        #expect(!firstJolt)
+        #expect(!sameJolt)
+        #expect(secondJolt)
+    }
+
+    @Test func aSingleBumpOrSlowJoltsDoNotCount() {
+        var detector = ShakeDetector()
+        let firstJolt = detector.register(x: 3, y: 0, z: 0, atMillis: 0)
+        let slowSecondJolt = detector.register(x: 3, y: 0, z: 0, atMillis: 1500)
+        let weakJolt = detector.register(x: 2, y: 1, z: 1, atMillis: 1700)
+        #expect(!firstJolt)
+        #expect(!slowSecondJolt)
+        #expect(!weakJolt)
+    }
+
+    @Test func oneShakeUndoesOnlyOnce() {
+        var detector = ShakeDetector()
+        _ = detector.register(x: 3, y: 0, z: 0, atMillis: 0)
+        let firstShake = detector.register(x: 3, y: 0, z: 0, atMillis: 200)
+        let cooldownReadingOne = detector.register(x: 3, y: 0, z: 0, atMillis: 400)
+        let cooldownReadingTwo = detector.register(x: 3, y: 0, z: 0, atMillis: 600)
+        _ = detector.register(x: 3, y: 0, z: 0, atMillis: 2000)
+        let secondShake = detector.register(x: 3, y: 0, z: 0, atMillis: 2200)
+        #expect(firstShake)
+        #expect(!cooldownReadingOne)
+        #expect(!cooldownReadingTwo)
+        #expect(secondShake)
+    }
+}
+
+@MainActor
+struct SmartFolderSuggestionTests {
+    private let recipes = LibraryFolder(
+        id: UUID(),
+        name: "Recipes",
+        symbolName: FolderSymbol.forkAndKnife.rawValue
+    )
+
+    @Test func offersToCreateAMissingFolderWithAFittingIcon() throws {
+        let suggestion = try #require(SmartFolderSuggestion.make(
+            suggestedFolderName: "Fitness",
+            folders: [recipes],
+            selectedFolderID: nil
+        ))
+
+        #expect(suggestion.needsNewFolder)
+        #expect(suggestion.symbol == .heart)
+        #expect(suggestion.actionTitle == "Create \u{201C}Fitness\u{201D}")
+    }
+
+    @Test func offersExistingFolderCaseInsensitively() throws {
+        let suggestion = try #require(SmartFolderSuggestion.make(
+            suggestedFolderName: "recipes",
+            folders: [recipes],
+            selectedFolderID: nil
+        ))
+
+        #expect(suggestion.existingFolderID == recipes.id)
+        #expect(suggestion.actionTitle == "Use \u{201C}Recipes\u{201D}")
+    }
+
+    @Test func staysQuietWhenSuggestionIsAlreadySelectedOrBlank() {
+        #expect(SmartFolderSuggestion.make(
+            suggestedFolderName: "Recipes",
+            folders: [recipes],
+            selectedFolderID: recipes.id
+        ) == nil)
+        #expect(SmartFolderSuggestion.make(
+            suggestedFolderName: "  ",
+            folders: [],
+            selectedFolderID: nil
+        ) == nil)
     }
 }

@@ -53,6 +53,10 @@ struct VideoItem: Identifiable, Codable, Equatable, Hashable, Sendable {
     var note: String?
     let savedAt: Date
     let analysisStatus: ContentAnalysisStatus
+    /// Cover image resolved by the API when the source platform exposes one.
+    var thumbnailURL: URL? = nil
+    /// Platform embed URL, retained for web-player fallbacks and future use.
+    var embedURL: URL? = nil
 
     var creatorDisplayName: String { creator.isEmpty ? "Creator unavailable" : creator }
 
@@ -77,6 +81,12 @@ struct VideoItem: Identifiable, Codable, Equatable, Hashable, Sendable {
         let minutes = durationSeconds / 60
         let seconds = durationSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    /// Uses the API result first and derives the predictable YouTube cover
+    /// when an older record does not include one.
+    var coverURL: URL? {
+        thumbnailURL ?? ShortEmbed.fallbackThumbnailURL(for: sourceURL, platform: platform)
     }
 }
 

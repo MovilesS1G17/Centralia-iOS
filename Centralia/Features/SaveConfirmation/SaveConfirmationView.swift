@@ -8,6 +8,8 @@ struct SaveConfirmationView: View {
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let playbackRepository: (any VideoPlaybackRepository)?
+    private let analytics: any AnalyticsTracking
     private let videoUpdated: () -> Void
     private let done: () -> Void
 
@@ -16,6 +18,8 @@ struct SaveConfirmationView: View {
         folderName: String?,
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         videoUpdated: @escaping () -> Void,
         done: @escaping () -> Void
     ) {
@@ -28,6 +32,8 @@ struct SaveConfirmationView: View {
         _folderName = State(initialValue: folderName)
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.playbackRepository = playbackRepository
+        self.analytics = analytics
         self.videoUpdated = videoUpdated
         self.done = done
     }
@@ -60,6 +66,8 @@ struct SaveConfirmationView: View {
                 video: viewModel.video,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                playbackRepository: playbackRepository,
+                analytics: analytics,
                 videoChanged: { updatedVideo in
                     viewModel.replaceVideo(updatedVideo)
                     Task {

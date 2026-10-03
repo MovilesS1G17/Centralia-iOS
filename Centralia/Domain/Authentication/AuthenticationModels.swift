@@ -6,6 +6,34 @@ struct AuthenticatedUser: Identifiable, Equatable, Sendable {
     let email: String?
 }
 
+struct VerificationPending: Equatable, Sendable {
+    let email: String
+    let resendAvailableIn: Int
+}
+
+/// The context needed to complete an email-verification flow without storing
+/// a password or other secret in navigation state.
+struct EmailVerificationContext: Equatable, Sendable {
+    enum Origin: Equatable, Sendable {
+        case registration
+        case signIn
+    }
+
+    let email: String
+    let resendAvailableIn: Int
+    let origin: Origin
+}
+
+enum SignUpOutcome: Equatable {
+    case authenticated(AuthenticatedUser)
+    case emailVerification(EmailVerificationContext)
+}
+
+enum LogInOutcome: Equatable {
+    case authenticated(AuthenticatedUser)
+    case emailVerification(EmailVerificationContext)
+}
+
 enum AuthenticationField: String, Equatable, Sendable {
     case email
     case password
@@ -25,6 +53,8 @@ enum AuthenticationProvider: String, CaseIterable, Sendable {
 enum AuthenticationError: LocalizedError, Equatable {
     case invalidCredentials
     case accountAlreadyExists
+    case verificationRequired(email: String, resendAvailableIn: Int)
+    case serverMessage(String)
     case validation(field: AuthenticationField, message: String)
     case providerCancelled
     case providerUnavailable
@@ -40,6 +70,10 @@ enum AuthenticationError: LocalizedError, Equatable {
             "The email or password is incorrect. Please try again."
         case .accountAlreadyExists:
             "An account already exists for this email. Try logging in instead."
+        case .verificationRequired:
+            "Check your email for a verification code to finish signing in."
+        case let .serverMessage(message):
+            message
         case let .validation(_, message):
             message
         case .providerCancelled:

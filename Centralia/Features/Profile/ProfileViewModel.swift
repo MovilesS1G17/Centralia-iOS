@@ -51,15 +51,7 @@ final class ProfileViewModel {
         failureMessage = nil
 
         do {
-            let localProfile = try await userRepository.profile(for: authenticatedUser)
-            // Authentication restores this identity from /me. Local profile data can
-            // contain an older name, so it must not override the server value.
-            let loadedProfile = UserProfile(
-                id: authenticatedUser.id,
-                displayName: authenticatedUser.displayName,
-                email: authenticatedUser.email ?? localProfile.email,
-                membershipStatus: localProfile.membershipStatus
-            )
+            let loadedProfile = try await userRepository.profile(for: authenticatedUser)
 
             async let loadedVideos = videoRepository.videos()
             async let loadedFolders = folderRepository.folders()
@@ -86,24 +78,23 @@ final class ProfileViewModel {
         await load()
     }
 
-    func updateProfile(displayName: String) async -> AuthenticatedUser? {
+    func updateProfile(displayName: String, email: String) async -> AuthenticatedUser? {
         guard let profile, !isUpdatingProfile else { return nil }
         isUpdatingProfile = true
         failureMessage = nil
         defer { isUpdatingProfile = false }
 
         do {
-            let updatedUser = try await authenticationRepository.updateDisplayName(
-                displayName,
-                for: authenticatedUser
+            let updatedProfile = try await userRepository.updateProfile(
+                UserProfile(
+                    id: profile.id,
+                    displayName: displayName,
+                    email: email,
+                    membershipStatus: profile.membershipStatus
+                )
             )
-            self.profile = UserProfile(
-                id: updatedUser.id,
-                displayName: updatedUser.displayName,
-                email: updatedUser.email ?? profile.email,
-                membershipStatus: profile.membershipStatus
-            )
-            return updatedUser
+            self.profile = updatedProfile
+            return updatedProfile.authenticatedUser
         } catch {
             failureMessage = error.localizedDescription
             return nil

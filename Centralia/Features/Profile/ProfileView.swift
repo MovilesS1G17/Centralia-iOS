@@ -73,8 +73,11 @@ struct ProfileView: View {
                     EditProfileSheet(
                         profile: profile,
                         isSaving: viewModel.isUpdatingProfile
-                    ) { name in
-                        guard let user = await viewModel.updateProfile(displayName: name) else {
+                    ) { name, email in
+                        guard let user = await viewModel.updateProfile(
+                            displayName: name,
+                            email: email
+                        ) else {
                             return false
                         }
                         userChanged(user)
@@ -83,9 +86,10 @@ struct ProfileView: View {
                 }
 
             case .changePassword:
-                FeatureUnavailableSheet(
-                    title: "Change Password",
-                    message: "Changing your password will be available once email verification is implemented."
+                ChangePasswordSheet(
+                    isSaving: viewModel.isChangingPassword,
+                    changePassword: viewModel.changePassword,
+                    completed: { showsPasswordConfirmation = true }
                 )
 
             case .notificationPreferences:
@@ -400,21 +404,24 @@ private struct EditProfileSheet: View {
 
     let profile: UserProfile
     let isSaving: Bool
-    let save: (String) async -> Bool
+    let save: (String, String) async -> Bool
 
     @State private var displayName: String
+    @State private var email: String
     @State private var nameError: String?
+    @State private var emailError: String?
     @State private var failureMessage: String?
 
     init(
         profile: UserProfile,
         isSaving: Bool,
-        save: @escaping (String) async -> Bool
+        save: @escaping (String, String) async -> Bool
     ) {
         self.profile = profile
         self.isSaving = isSaving
         self.save = save
         _displayName = State(initialValue: profile.displayName)
+        _email = State(initialValue: profile.email)
     }
 
     var body: some View {
@@ -427,12 +434,18 @@ private struct EditProfileSheet: View {
                         Text(nameError).foregroundStyle(.red)
                     }
 
+                    TextField("Email", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    if let emailError {
+                        Text(emailError).foregroundStyle(.red)
+                    }
                 }
 
-                Section("Email") {
-                    Text(profile.email)
-                        .foregroundStyle(.secondary)
-                    Text("Changing your email will be available once email verification is implemented.")
+                Section {
+                    Text("Changing your email may require verification when the live API is connected.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -467,41 +480,16 @@ private struct EditProfileSheet: View {
     private func submit() {
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         nameError = trimmedName.isEmpty ? "Enter your name." : nil
-        guard nameError == nil else { return }
+        emailError = AuthenticationValidation.emailError(for: email)
+        guard nameError == nil, emailError == nil else { return }
 
         Task {
-            if await save(trimmedName) {
+            if await save(trimmedName, email) {
                 dismiss()
             } else {
                 failureMessage = "Your changes could not be saved. Please try again."
             }
         }
-    }
-}
-
-private struct FeatureUnavailableSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let title: String
-    let message: String
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label(title, systemImage: "lock.circle")
-            } description: {
-                Text(message)
-            }
-            .padding()
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium])
     }
 }
 

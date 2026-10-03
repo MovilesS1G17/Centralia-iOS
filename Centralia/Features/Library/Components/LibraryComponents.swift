@@ -146,10 +146,16 @@ struct LibraryVideoCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
                 Button(action: openDetail) {
-                    cardColor
-                        .frame(maxWidth: .infinity)
-                        .frame(height: previewHeight)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        cardColor
+                        VideoCoverImage(url: video.coverURL)
+                        if video.coverURL != nil {
+                            VideoCoverGradient()
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: previewHeight)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open \(video.displayTitle)")
@@ -290,8 +296,13 @@ struct LibraryUndoToast: View {
 
     var body: some View {
         HStack(spacing: CentraliaTheme.Spacing.medium) {
-            Text("Video removed")
-                .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Video removed")
+                    .font(.subheadline.weight(.semibold))
+                Text("Shake to undo")
+                    .font(.caption)
+                    .opacity(0.75)
+            }
 
             Spacer()
 
@@ -307,5 +318,6 @@ struct LibraryUndoToast: View {
         .background(Color.centraliaInk, in: Capsule())
         .padding(.horizontal, CentraliaTheme.Spacing.medium)
         .padding(.bottom, CentraliaTheme.Spacing.small)
+        .onShake(perform: undo)
     }
 }

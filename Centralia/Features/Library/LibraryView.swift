@@ -14,25 +14,35 @@ struct LibraryView: View {
     @State private var movingVideo: VideoItem?
 
     private let presentSave: () -> Void
+    private let userDisplayName: String?
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let analytics: any AnalyticsTracking
+    private let playbackRepository: (any VideoPlaybackRepository)?
 
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         selectedTab: Binding<AppTab>,
+        userDisplayName: String? = nil,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         presentSave: @escaping () -> Void
     ) {
         _viewModel = State(
             initialValue: LibraryViewModel(
                 videoRepository: videoRepository,
-                folderRepository: folderRepository
+                folderRepository: folderRepository,
+                analytics: analytics
             )
         )
+        self.analytics = analytics
+        self.playbackRepository = playbackRepository
         _selectedTab = selectedTab
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.presentSave = presentSave
+        self.userDisplayName = userDisplayName
     }
 
     var body: some View {
@@ -40,6 +50,8 @@ struct LibraryView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
                     LibraryHeader(presentSave: presentSave)
+
+                    LibraryGreeting(displayName: userDisplayName)
 
                     LibrarySearchEntry {
                         selectedTab = .search
@@ -64,7 +76,15 @@ struct LibraryView: View {
                     .toolbar(.hidden, for: .tabBar)
             }
             .task {
+                viewModel.trackScreenViewed()
                 await viewModel.load()
+            }
+            .alert("Couldn’t update your library", isPresented: failureBinding) {
+                Button("OK") {
+                    viewModel.dismissFailure()
+                }
+            } message: {
+                Text(viewModel.failureMessage ?? FeatureError.genericMessage)
             }
             .sheet(item: $movingVideo) { video in
                 MoveVideoSheet(video: video, folders: viewModel.folders) { folderID in
@@ -248,6 +268,8 @@ struct LibraryView: View {
                 video: video,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                playbackRepository: playbackRepository,
+                analytics: analytics,
                 videoChanged: { updatedVideo in
                     viewModel.apply(updatedVideo)
                 },
@@ -261,6 +283,8 @@ struct LibraryView: View {
                 folder: folder,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                playbackRepository: playbackRepository,
+                analytics: analytics,
                 folderChanged: {
                     Task {
                         await viewModel.retry()
@@ -268,6 +292,17 @@ struct LibraryView: View {
                 }
             )
         }
+    }
+
+    private var failureBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.failureMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    viewModel.dismissFailure()
+                }
+            }
+        )
     }
 
     private var deletionDialogBinding: Binding<Bool> {

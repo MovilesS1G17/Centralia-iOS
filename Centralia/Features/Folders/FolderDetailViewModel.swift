@@ -26,6 +26,8 @@ final class FolderDetailViewModel {
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let analytics: any AnalyticsTracking
+    private var hasTrackedScreen = false
 
     private(set) var state: LoadState = .idle
     private(set) var folder: LibraryFolder
@@ -40,20 +42,15 @@ final class FolderDetailViewModel {
     var sort: FolderSort = .dateSaved
 
     var availableTags: [String] {
-        Array(Set(videos.flatMap(\.tags))).sorted {
-            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-        }
+        TagCatalog.available(from: videos)
     }
 
     var filteredVideos: [VideoItem] {
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = videos.filter { video in
-            selectedSourceFilter.includes(video)
-                && selectedTags.allSatisfy { selectedTag in
-                    video.tags.contains { $0.localizedCaseInsensitiveCompare(selectedTag) == .orderedSame }
-                }
-                && (trimmedQuery.isEmpty || matches(video, query: trimmedQuery))
+        var criteria = VideoSearchCriteria(text: query, tags: selectedTags)
+        if case let .platform(platform) = selectedSourceFilter {
+            criteria.platform = platform
         }
+        let filtered = VideoSearch.filter(videos, criteria: criteria)
 
         switch sort {
         case .dateSaved:
@@ -68,11 +65,23 @@ final class FolderDetailViewModel {
     init(
         folder: LibraryFolder,
         videoRepository: any VideoItemRepository,
-        folderRepository: any FolderRepository
+        folderRepository: any FolderRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         self.folder = folder
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.analytics = analytics
+    }
+
+    func trackScreenViewed() {
+        guard !hasTrackedScreen else { return }
+        hasTrackedScreen = true
+        analytics.track(.screenViewed(.folderDetail))
+    }
+
+    private func presentFailure(_ error: Error) {
+        failureMessage = FeatureError.report(error, screen: .folderDetail, analytics: analytics)
     }
 
     func load() async {
@@ -87,7 +96,8 @@ final class FolderDetailViewModel {
             reconcileSelectedTags()
             state = .loaded
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(FeatureError.message(for: error))
+            analytics.track(.errorShown(screen: .folderDetail, code: FeatureError.code(for: error)))
         }
     }
 
@@ -102,7 +112,7 @@ final class FolderDetailViewModel {
             videos.removeAll { $0.id == video.id }
             reconcileSelectedTags()
         } catch {
-            failureMessage = error.localizedDescription
+            presentFailure(error)
         }
     }
 
@@ -113,7 +123,7 @@ final class FolderDetailViewModel {
             reconcileSelectedTags()
             recentlyDeletedVideo = video
         } catch {
-            failureMessage = error.localizedDescription
+            presentFailure(error)
         }
     }
 
@@ -126,7 +136,7 @@ final class FolderDetailViewModel {
             reconcileSelectedTags()
             recentlyDeletedVideo = nil
         } catch {
-            failureMessage = error.localizedDescription
+            presentFailure(error)
         }
     }
 
@@ -159,7 +169,7 @@ final class FolderDetailViewModel {
             failureMessage = nil
             return true
         } catch {
-            failureMessage = error.localizedDescription
+            presentFailure(error)
             return false
         }
     }
@@ -169,19 +179,17 @@ final class FolderDetailViewModel {
             try await folderRepository.deleteFolder(id: folder.id)
             return true
         } catch {
-            failureMessage = error.localizedDescription
+            // Already removed elsewhere: the goal of the action is met.
+            if FeatureError.code(for: error) == "folder_not_found" {
+                return true
+            }
+            presentFailure(error)
             return false
         }
     }
 
     func dismissFailure() {
         failureMessage = nil
-    }
-
-    private func matches(_ video: VideoItem, query: String) -> Bool {
-        video.displayTitle.localizedCaseInsensitiveContains(query)
-            || video.creator.localizedCaseInsensitiveContains(query)
-            || video.tags.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 
     private func reconcileSelectedTags() {

@@ -13,6 +13,8 @@ final class SaveVideoViewModel {
     private let pipeline: any VideoImportPipeline
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let analytics: any AnalyticsTracking
+    private var hasTrackedScreen = false
 
     private(set) var analysisState: AnalysisState = .idle
     private(set) var metadata: ImportedVideoMetadata?
@@ -21,6 +23,8 @@ final class SaveVideoViewModel {
     private(set) var folders: [LibraryFolder] = []
     private(set) var isSaving = false
     private(set) var saveFailureMessage: String?
+    private(set) var saveFailureIsRetryable = false
+    private(set) var lastSaveWasOrganized = false
     private(set) var folderFailureMessage: String?
     private(set) var folderSelectionError: String?
 
@@ -51,6 +55,16 @@ final class SaveVideoViewModel {
         return folders.first { $0.id == selectedFolderID }?.name
     }
 
+    /// The single-tap smart-folder choice to show after import analysis.
+    var smartFolderSuggestion: SmartFolderSuggestion? {
+        guard analysisState == .ready else { return nil }
+        return SmartFolderSuggestion.make(
+            suggestedFolderName: suggestedFolderName,
+            folders: folders,
+            selectedFolderID: selectedFolderID
+        )
+    }
+
     var availableTagSuggestions: [String] {
         suggestedTags.filter { suggestion in
             !selectedTags.contains {
@@ -62,18 +76,31 @@ final class SaveVideoViewModel {
     init(
         pipeline: any VideoImportPipeline,
         videoRepository: any VideoItemRepository,
-        folderRepository: any FolderRepository
+        folderRepository: any FolderRepository,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
         self.pipeline = pipeline
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.analytics = analytics
+    }
+
+    func trackScreenViewed() {
+        guard !hasTrackedScreen else { return }
+        hasTrackedScreen = true
+        analytics.track(.screenViewed(.saveVideo))
+    }
+
+    private func reportError(_ error: Error) {
+        analytics.track(.errorShown(screen: .saveVideo, code: FeatureError.code(for: error)))
     }
 
     func loadFolders() async {
         do {
             folders = try await folderRepository.folders()
         } catch {
-            folderFailureMessage = error.localizedDescription
+            folderFailureMessage = FeatureError.message(for: error)
+            reportError(error)
         }
     }
 
@@ -117,16 +144,15 @@ final class SaveVideoViewModel {
             try ensureCurrent(source)
             metadata = extractedMetadata
 
+            // Suggestions only enrich the save: if they fail, the short can
+            // still be saved without them.
             analysisState = .processing(.generatingTags)
-            let generatedTags = try await pipeline.generateTags(for: extractedMetadata)
+            let generatedTags = (try? await pipeline.generateTags(for: extractedMetadata)) ?? []
             try ensureCurrent(source)
-            suggestedTags = generatedTags
+            suggestedTags = TagCatalog.normalize(generatedTags)
 
             analysisState = .processing(.suggestingFolder)
-            let folderName = try await pipeline.suggestFolder(
-                for: extractedMetadata,
-                tags: generatedTags
-            )
+            let folderName = try? await pipeline.suggestFolder(for: extractedMetadata, tags: generatedTags)
             try ensureCurrent(source)
             suggestedFolderName = folderName
             selectedFolderID = folders.first {
@@ -143,7 +169,8 @@ final class SaveVideoViewModel {
             metadata = nil
             suggestedTags = []
             suggestedFolderName = nil
-            analysisState = .failed(error.localizedDescription)
+            analysisState = .failed(FeatureError.message(for: error))
+            reportError(error)
         }
     }
 
@@ -166,17 +193,26 @@ final class SaveVideoViewModel {
             selectedFolderID = folder.id
             return folder
         } catch {
-            folderFailureMessage = error.localizedDescription
+            folderFailureMessage = FeatureError.message(for: error)
+            reportError(error)
             return nil
         }
     }
 
+    /// Selects the suggested folder, creating it with its matching symbol when needed.
+    func applySmartFolderSuggestion() async {
+        guard let suggestion = smartFolderSuggestion else { return }
+
+        if let existingFolderID = suggestion.existingFolderID {
+            selectedFolderID = existingFolderID
+        } else {
+            _ = await createFolder(named: suggestion.folderName, symbol: suggestion.symbol)
+        }
+    }
+
     func addTag(_ value: String) {
-        let tag = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !tag.isEmpty,
-              !selectedTags.contains(where: {
-                  $0.localizedCaseInsensitiveCompare(tag) == .orderedSame
-              }) else {
+        guard let tag = TagCatalog.normalize([value]).first,
+              !TagCatalog.contains(selectedTags, tag) else {
             return
         }
 
@@ -198,6 +234,7 @@ final class SaveVideoViewModel {
         }
 
         folderSelectionError = nil
+        lastSaveWasOrganized = organized
 
         isSaving = true
         saveFailureMessage = nil
@@ -216,7 +253,7 @@ final class SaveVideoViewModel {
             generatedSummary: metadata.generatedSummary,
             customTitle: nil,
             folderID: organized ? selectedFolderID : nil,
-            tags: selectedTags,
+            tags: TagCatalog.normalize(selectedTags),
             note: trimmedNote.isEmpty ? nil : trimmedNote,
             savedAt: Date(),
             analysisStatus: .completed
@@ -226,7 +263,9 @@ final class SaveVideoViewModel {
             try await videoRepository.saveVideo(video)
             return video
         } catch {
-            saveFailureMessage = error.localizedDescription
+            saveFailureMessage = FeatureError.message(for: error)
+            saveFailureIsRetryable = FeatureError.isRetryable(error)
+            reportError(error)
             return nil
         }
     }
