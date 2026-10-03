@@ -909,7 +909,7 @@ struct CentraliaTests {
         #expect(viewModel.storageUsage.percentage == 48)
     }
 
-    @Test func profileDisplayNameUpdatesWithoutChangingEmail() async throws {
+    @Test func profileUpdatesNameAndEmail() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -944,12 +944,13 @@ struct CentraliaTests {
         await viewModel.load()
 
         let updatedUser = await viewModel.updateProfile(
-            displayName: "David Caro"
+            displayName: "David Caro",
+            email: "DAVID@EXAMPLE.COM"
         )
         #expect(updatedUser?.displayName == "David Caro")
-        #expect(updatedUser?.email == "demo@centralia.app")
+        #expect(updatedUser?.email == "david@example.com")
         #expect(viewModel.profile?.displayName == "David Caro")
-        #expect(viewModel.profile?.email == "demo@centralia.app")
+        #expect(viewModel.profile?.email == "david@example.com")
 
         var preferences = viewModel.notificationPreferences
         preferences.productUpdates = true
@@ -961,9 +962,12 @@ struct CentraliaTests {
             filename: "profile-persistence-users.json",
             delay: .zero
         )
+        let persistedProfile = try await reloadedRepository.profile(for: originalUser)
         let persistedPreferences = try await reloadedRepository.notificationPreferences(
             for: originalUser.id
         )
+        #expect(persistedProfile.displayName == "David Caro")
+        #expect(persistedProfile.email == "david@example.com")
         #expect(persistedPreferences.productUpdates)
         #expect(persistedPreferences.weeklyLibrarySummary == false)
     }
