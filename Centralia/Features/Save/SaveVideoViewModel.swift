@@ -55,6 +55,16 @@ final class SaveVideoViewModel {
         return folders.first { $0.id == selectedFolderID }?.name
     }
 
+    /// The single-tap smart-folder choice to show after import analysis.
+    var smartFolderSuggestion: SmartFolderSuggestion? {
+        guard analysisState == .ready else { return nil }
+        return SmartFolderSuggestion.make(
+            suggestedFolderName: suggestedFolderName,
+            folders: folders,
+            selectedFolderID: selectedFolderID
+        )
+    }
+
     var availableTagSuggestions: [String] {
         suggestedTags.filter { suggestion in
             !selectedTags.contains {
@@ -186,6 +196,17 @@ final class SaveVideoViewModel {
             folderFailureMessage = FeatureError.message(for: error)
             reportError(error)
             return nil
+        }
+    }
+
+    /// Selects the suggested folder, creating it with its matching symbol when needed.
+    func applySmartFolderSuggestion() async {
+        guard let suggestion = smartFolderSuggestion else { return }
+
+        if let existingFolderID = suggestion.existingFolderID {
+            selectedFolderID = existingFolderID
+        } else {
+            _ = await createFolder(named: suggestion.folderName, symbol: suggestion.symbol)
         }
     }
 

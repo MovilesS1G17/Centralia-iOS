@@ -345,3 +345,47 @@ struct FlowLayout: Layout {
         return CGSize(width: measuredWidth, height: y + rowHeight)
     }
 }
+
+/// A one-tap suggestion to use, or create, the folder inferred from a short.
+struct SmartFolderSuggestionCard: View {
+    let suggestion: SmartFolderSuggestion
+    let onApply: () -> Void
+
+    var body: some View {
+        HStack(spacing: CentraliaTheme.Spacing.small) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(Color.centraliaInk)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(SmartFolderSuggestion.title)
+                    .font(.caption)
+                    .foregroundStyle(Color.centraliaSecondaryText)
+                Text(suggestion.message)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.centraliaInk)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: onApply) {
+                Text(suggestion.actionTitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.centraliaSurface)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: 40)
+                    .background(Color.centraliaInk, in: Capsule())
+            }
+            .buttonStyle(CentraliaPressStyle())
+            .accessibilityIdentifier("saveVideoSmartFolderButton")
+        }
+        .padding(.horizontal, CentraliaTheme.Spacing.medium)
+        .padding(.vertical, CentraliaTheme.Spacing.small)
+        .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.centraliaDivider, lineWidth: 1)
+        }
+    }
+}

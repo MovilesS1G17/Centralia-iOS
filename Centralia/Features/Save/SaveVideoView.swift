@@ -259,6 +259,12 @@ struct SaveVideoView: View {
                     .accessibilityLabel("Error: \(errorMessage)")
                     .accessibilityIdentifier("saveVideoFolderError")
             }
+
+            if let suggestion = viewModel.smartFolderSuggestion {
+                SmartFolderSuggestionCard(suggestion: suggestion) {
+                    Task { await viewModel.applySmartFolderSuggestion() }
+                }
+            }
         }
     }
 

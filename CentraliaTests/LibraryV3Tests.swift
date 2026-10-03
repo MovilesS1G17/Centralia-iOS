@@ -805,6 +805,24 @@ struct ImportFlowTests {
         #expect(model.canSave)
     }
 
+    @Test func smartFolderSuggestionCreatesAndSelectsAMissingFolder() async throws {
+        let library = V3SimulatedLibrary()
+        library.suggestedFolderName = "Fitness"
+        let model = model(library)
+        await model.loadFolders()
+        await model.analyzeURL(after: .zero)
+
+        #expect(model.smartFolderSuggestion?.needsNewFolder == true)
+        await model.applySmartFolderSuggestion()
+
+        let selectedFolder = try #require(
+            library.storedFolders.first { $0.id == model.selectedFolderID }
+        )
+        #expect(selectedFolder.name == "Fitness")
+        #expect(selectedFolder.symbolName == FolderSymbol.heart.rawValue)
+        #expect(model.smartFolderSuggestion == nil)
+    }
+
     @Test func linkErrorsAreShownWithTheBackendMessageAndAreNotRetryable() async {
         let cases: [(Error, String)] = [
             (VideoImportError.invalidURL, "invalid_url"),

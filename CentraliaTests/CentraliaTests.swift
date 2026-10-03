@@ -1173,3 +1173,48 @@ struct ShakeDetectorTests {
         #expect(secondShake)
     }
 }
+
+@MainActor
+struct SmartFolderSuggestionTests {
+    private let recipes = LibraryFolder(
+        id: UUID(),
+        name: "Recipes",
+        symbolName: FolderSymbol.forkAndKnife.rawValue
+    )
+
+    @Test func offersToCreateAMissingFolderWithAFittingIcon() throws {
+        let suggestion = try #require(SmartFolderSuggestion.make(
+            suggestedFolderName: "Fitness",
+            folders: [recipes],
+            selectedFolderID: nil
+        ))
+
+        #expect(suggestion.needsNewFolder)
+        #expect(suggestion.symbol == .heart)
+        #expect(suggestion.actionTitle == "Create \u{201C}Fitness\u{201D}")
+    }
+
+    @Test func offersExistingFolderCaseInsensitively() throws {
+        let suggestion = try #require(SmartFolderSuggestion.make(
+            suggestedFolderName: "recipes",
+            folders: [recipes],
+            selectedFolderID: nil
+        ))
+
+        #expect(suggestion.existingFolderID == recipes.id)
+        #expect(suggestion.actionTitle == "Use \u{201C}Recipes\u{201D}")
+    }
+
+    @Test func staysQuietWhenSuggestionIsAlreadySelectedOrBlank() {
+        #expect(SmartFolderSuggestion.make(
+            suggestedFolderName: "Recipes",
+            folders: [recipes],
+            selectedFolderID: recipes.id
+        ) == nil)
+        #expect(SmartFolderSuggestion.make(
+            suggestedFolderName: "  ",
+            folders: [],
+            selectedFolderID: nil
+        ) == nil)
+    }
+}
