@@ -43,8 +43,7 @@ final class LogInViewModel {
                 EmailVerificationContext(
                     email: email.isEmpty ? AuthenticationValidation.normalizedEmail(self.email) : email,
                     resendAvailableIn: resendAvailableIn,
-                    origin: .signIn,
-                    intendedDisplayName: nil
+                    origin: .signIn
                 )
             )
         } catch let error as AuthenticationError {

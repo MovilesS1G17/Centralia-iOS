@@ -22,10 +22,6 @@ struct EmailVerificationContext: Equatable, Sendable {
     let email: String
     let resendAvailableIn: Int
     let origin: Origin
-    /// Registration is intentionally limited to email and password by V3.
-    /// We retain the optional name only long enough to apply it to `/v1/me`
-    /// after the account has been verified.
-    let intendedDisplayName: String?
 }
 
 enum SignUpOutcome: Equatable {

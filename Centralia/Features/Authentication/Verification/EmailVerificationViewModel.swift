@@ -34,17 +34,7 @@ final class EmailVerificationViewModel {
         defer { isVerifying = false }
 
         do {
-            let verifiedUser = try await repository.verifyEmail(email: context.email, code: code)
-            guard let intendedDisplayName = context.intendedDisplayName,
-                  AuthenticationValidation.displayNameError(for: intendedDisplayName) == nil,
-                  intendedDisplayName != verifiedUser.displayName else {
-                return verifiedUser
-            }
-
-            return try await repository.updateDisplayName(
-                intendedDisplayName,
-                for: verifiedUser
-            )
+            return try await repository.verifyEmail(email: context.email, code: code)
         } catch is CancellationError {
             return nil
         } catch let error as AuthenticationError {

@@ -11,11 +11,9 @@ final class SignUpViewModel {
     private let repository: any AuthenticationRepository
 
     var mode: Mode = .options
-    var displayName = ""
     var email = ""
     var password = ""
     var passwordConfirmation = ""
-    var displayNameError: String?
     var emailError: String?
     var passwordError: String?
     var confirmationError: String?
@@ -52,7 +50,6 @@ final class SignUpViewModel {
 
         do {
             let normalizedEmail = AuthenticationValidation.normalizedEmail(email)
-            let normalizedDisplayName = AuthenticationValidation.normalizedDisplayName(displayName)
 
             if let repository = repository as? any V3AuthenticationRepository {
                 let pending = try await repository.register(
@@ -63,14 +60,15 @@ final class SignUpViewModel {
                     EmailVerificationContext(
                         email: pending.email,
                         resendAvailableIn: pending.resendAvailableIn,
-                        origin: .registration,
-                        intendedDisplayName: normalizedDisplayName
+                        origin: .registration
                     )
                 )
             }
 
+            // The production container always supplies a V3 repository. This
+            // fallback only keeps the legacy mock boundary recoverable.
             let user = try await repository.createAccount(
-                displayName: normalizedDisplayName,
+                displayName: normalizedEmail,
                 email: normalizedEmail,
                 password: password
             )
@@ -108,14 +106,10 @@ final class SignUpViewModel {
 
     @discardableResult
     private func validateForm() -> Bool {
-        displayNameError = AuthenticationValidation.displayNameError(for: displayName)
         emailError = AuthenticationValidation.emailError(for: email)
         passwordError = AuthenticationValidation.passwordError(for: password)
         confirmationError = password == passwordConfirmation ? nil : "Passwords do not match."
-        return displayNameError == nil
-            && emailError == nil
-            && passwordError == nil
-            && confirmationError == nil
+        return emailError == nil && passwordError == nil && confirmationError == nil
     }
 
     private func present(_ error: AuthenticationError) {
@@ -129,9 +123,7 @@ final class SignUpViewModel {
             emailError = message
         case .password:
             passwordError = message
-        case .displayName:
-            displayNameError = message
-        case .unknown:
+        case .displayName, .unknown:
             failureMessage = message
         }
     }
