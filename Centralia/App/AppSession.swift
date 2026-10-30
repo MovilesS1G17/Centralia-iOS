@@ -14,6 +14,8 @@ final class AppSession {
     }
 
     var phase: Phase = .unauthenticated(.signUp)
+    /// Sprint 3: removes this user's offline copy from the phone on sign-out.
+    @ObservationIgnored var onSignOut: (() -> Void)?
     private(set) var isRestoringSession: Bool
 
     init(isRestoringSession: Bool = false) {
@@ -42,6 +44,7 @@ final class AppSession {
     }
 
     func signOut() {
+        onSignOut?()
         phase = .unauthenticated(.logIn)
     }
 
