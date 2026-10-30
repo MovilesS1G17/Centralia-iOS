@@ -15,3 +15,7 @@ uv run uvicorn app.main:app --reload
 Set `CENTRALIA_API_BASE_URL` in the Xcode scheme's Run environment variables or set `CentraliaAPIBaseURL` in `Centralia/Info.plist`. Use the origin only, such as `http://127.0.0.1:8000` for the Simulator or a reachable LAN address for a device. The app has no default localhost address; missing or invalid configuration produces a readable error. Production deployments must use HTTPS.
 
 Bearer tokens are stored in the iOS Keychain. Registration requires email verification before a session exists.
+
+## Sprint 3: offline-first
+
+Library, folders and search open without a connection (JSON copy in Application Support), changes made offline are queued and synced when the network is back (`X-Queued-At`), and playback answers and covers are cached. Code: `Centralia/Data/Local`, `Centralia/Data/Offline`, `Shared/Components/OfflineBanner.swift`, `Shared/Components/CoverImageLoader.swift`. Strategies, scenarios and the per-member table: `docs/sprint3-wiki.md`.
