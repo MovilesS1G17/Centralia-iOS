@@ -35,6 +35,8 @@ final class VideoDetailViewModel {
     /// Set when the refresh on open fails; the saved copy stays visible.
     private(set) var loadFailureMessage: String?
     private(set) var playbackState: PlaybackState = .idle
+    /// Context-aware playback: why the short plays in data saver mode (mobile data).
+    private(set) var dataSaverNotice: String?
 
     /// False until a playback repository is provided; the screen then keeps
     /// its static preview.
@@ -78,9 +80,11 @@ final class VideoDetailViewModel {
         guard let playbackRepository, playbackState != .loading else { return }
         playbackState = .loading
         fallbackEmbedURL = nil
+        dataSaverNotice = nil
 
         do {
             let playback = try await playbackRepository.playback(for: video.id)
+            dataSaverNotice = playback.dataSaver ? playback.notice : nil
             let embed = playback.embedURL.flatMap(Self.allowedURL)
             let stream = playback.streamURL.flatMap(Self.allowedURL)
             fallbackEmbedURL = embed
@@ -120,6 +124,7 @@ final class VideoDetailViewModel {
 
     func stopPlayback() {
         playbackState = .idle
+        dataSaverNotice = nil
     }
 
     private func failPlayback(_ message: String, reason: String) {
@@ -190,10 +195,13 @@ final class VideoDetailViewModel {
         }
     }
 
+    /// The shake-to-undo pop-up the backend sent with the last delete.
+    private(set) var lastDeletion: VideoDeletion?
+
     @discardableResult
     func deleteVideo() async -> Bool {
         await mutate {
-            try await videoRepository.deleteVideo(id: video.id)
+            lastDeletion = try await videoRepository.deleteVideo(id: video.id)
         }
     }
 

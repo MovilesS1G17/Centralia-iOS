@@ -80,10 +80,12 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
         try await store.save(value, to: filename)
     }
 
-    func deleteVideo(id: UUID) async throws {
+    @discardableResult
+    func deleteVideo(id: UUID) async throws -> VideoDeletion {
         var value = try await snapshot()
         value.videos.removeAll { $0.id == id }
         try await store.save(value, to: filename)
+        return .local(videoID: id)
     }
 
     func restoreVideo(_ video: VideoItem) async throws {

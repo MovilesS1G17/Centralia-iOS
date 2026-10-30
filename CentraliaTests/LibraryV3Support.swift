@@ -102,10 +102,12 @@ final class V3SimulatedLibrary: VideoItemRepository, FolderRepository, VideoImpo
         storedVideos.append(video)
     }
 
-    func deleteVideo(id: UUID) async throws {
+    @discardableResult
+    func deleteVideo(id: UUID) async throws -> VideoDeletion {
         if let mutationError { throw mutationError }
         guard storedVideos.contains(where: { $0.id == id }) else { throw V3APIError.videoNotFound }
         storedVideos.removeAll { $0.id == id }
+        return .local(videoID: id)
     }
 
     func restoreVideo(_ video: VideoItem) async throws {

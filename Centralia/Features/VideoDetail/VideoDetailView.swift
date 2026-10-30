@@ -15,7 +15,7 @@ struct VideoDetailView: View {
 
     private let videoRepository: any VideoItemRepository
     private let videoChanged: (VideoItem) -> Void
-    private let videoDeleted: (VideoItem) -> Void
+    private let videoDeleted: (VideoItem, VideoDeletion) -> Void
 
     init(
         video: VideoItem,
@@ -24,7 +24,7 @@ struct VideoDetailView: View {
         playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         videoChanged: @escaping (VideoItem) -> Void = { _ in },
-        videoDeleted: @escaping (VideoItem) -> Void = { _ in }
+        videoDeleted: @escaping (VideoItem, VideoDeletion) -> Void = { _, _ in }
     ) {
         _viewModel = State(
             initialValue: VideoDetailViewModel(
@@ -45,6 +45,16 @@ struct VideoDetailView: View {
             VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
                 loadFailureBanner
                 preview
+                // Context-aware playback: on mobile data the backend picks data saver.
+                if let notice = viewModel.dataSaverNotice {
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(Color.centraliaSecondaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 8))
+                }
                 metadata
                 organization
                 note
@@ -444,7 +454,7 @@ struct VideoDetailView: View {
         let deletedVideo = viewModel.video
         Task {
             guard await viewModel.deleteVideo() else { return }
-            videoDeleted(deletedVideo)
+            videoDeleted(deletedVideo, viewModel.lastDeletion ?? .local(videoID: deletedVideo.id))
             dismiss()
         }
     }
