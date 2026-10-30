@@ -78,18 +78,34 @@ struct VideoDTO: Decodable {
     }
 }
 
+/// `DELETE /v1/videos/{id}`: the shake-to-undo pop-up for the deleted short.
+struct VideoDeletionDTO: Decodable {
+    let videoID: UUID
+    let deletedAt: Date
+    let undoExpiresAt: Date
+    let undoMessage: String
+
+    var model: VideoDeletion {
+        VideoDeletion(videoID: videoID, undoMessage: undoMessage, undoExpiresAt: undoExpiresAt)
+    }
+}
+
 struct VideoPlaybackDTO: Decodable {
     let streamURL: String?
     let streamReady: Bool
     let expiresAt: Date?
     let embedURL: URL?
+    let dataSaver: Bool?
+    let notice: String?
 
     func model(configuration: APIConfiguration) throws -> VideoPlayback {
         VideoPlayback(
             streamURL: try streamURL.map(configuration.streamURL(for:)),
             streamReady: streamReady,
             expiresAt: expiresAt,
-            embedURL: embedURL
+            embedURL: embedURL,
+            dataSaver: dataSaver ?? false,
+            notice: notice
         )
     }
 }

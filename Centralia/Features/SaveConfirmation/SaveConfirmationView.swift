@@ -78,7 +78,7 @@ struct SaveConfirmationView: View {
                     }
                     videoUpdated()
                 },
-                videoDeleted: { _ in
+                videoDeleted: { _, _ in
                     videoUpdated()
                     done()
                 }
