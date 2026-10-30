@@ -4,6 +4,8 @@ struct AuthenticatedAppView: View {
     let user: AuthenticatedUser
     let videoRepository: any VideoItemRepository
     let folderRepository: any FolderRepository
+    var playbackRepository: (any VideoPlaybackRepository)? = nil
+    var offlineStatus = OfflineStatus()
     let searchHistoryRepository: any SearchHistoryRepository
     let userRepository: any UserRepository
     let libraryExportService: any LibraryExportService
@@ -19,6 +21,21 @@ struct AuthenticatedAppView: View {
     @State private var foldersRevision = 0
 
     var body: some View {
+        VStack(spacing: 0) {
+            // Sprint 3 (eventual connectivity): offline / syncing banner.
+            OfflineBanner(isOnline: offlineStatus.isOnline, pendingChanges: offlineStatus.pendingChanges)
+            tabs
+        }
+        .animation(.easeOut(duration: 0.2), value: offlineStatus.isOnline)
+        .animation(.easeOut(duration: 0.2), value: offlineStatus.pendingChanges)
+        // Changes made offline reached the server: reload with its version.
+        .onChange(of: offlineStatus.syncRevision) {
+            libraryRevision += 1
+            foldersRevision += 1
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: $selectedTab) {
             Tab("Library", systemImage: "house", value: AppTab.library) {
                 LibraryView(
@@ -26,6 +43,7 @@ struct AuthenticatedAppView: View {
                     folderRepository: folderRepository,
                     selectedTab: $selectedTab,
                     userDisplayName: user.displayName,
+                    playbackRepository: playbackRepository,
                     presentSave: { presentsSave = true }
                 )
                 .id(libraryRevision)
@@ -35,7 +53,8 @@ struct AuthenticatedAppView: View {
                 SearchView(
                     videoRepository: videoRepository,
                     folderRepository: folderRepository,
-                    searchHistoryRepository: searchHistoryRepository
+                    searchHistoryRepository: searchHistoryRepository,
+                    playbackRepository: playbackRepository
                 )
                 .id(libraryRevision)
             }
@@ -49,6 +68,7 @@ struct AuthenticatedAppView: View {
                     videoRepository: videoRepository,
                     folderRepository: folderRepository,
                     suggestionPipeline: videoImportPipeline,
+                    playbackRepository: playbackRepository,
                     libraryChanged: {
                         libraryRevision += 1
                     }
