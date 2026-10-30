@@ -1,3 +1,4 @@
+import Foundation
 final class DependencyContainer {
     let authenticationRepository: any AuthenticationRepository
     let videoItemRepository: any VideoItemRepository
