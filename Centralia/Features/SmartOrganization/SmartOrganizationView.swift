@@ -69,7 +69,7 @@ struct SmartOrganizationView: View {
                     viewModel.apply(updatedVideo)
                     libraryChanged()
                 },
-                videoDeleted: { deletedVideo in
+                videoDeleted: { deletedVideo, _ in
                     viewModel.registerDeleted(deletedVideo)
                     libraryChanged()
                 }
