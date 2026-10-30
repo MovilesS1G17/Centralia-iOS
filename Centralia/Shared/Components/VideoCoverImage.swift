@@ -1,28 +1,37 @@
 import SwiftUI
+import UIKit
 
 /// Renders a remote cover while preserving the card colour if it is loading,
-/// unavailable, or absent.
+/// unavailable, or absent. Covers come from `CoverImageLoader` (memory + disk
+/// cache), so they still show offline once seen.
 struct VideoCoverImage: View {
     let url: URL?
+
+    @State private var image: UIImage?
 
     var body: some View {
         Color.clear
             .overlay {
-                if let url {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        } else {
-                            Color.clear
-                        }
-                    }
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
                 }
             }
             .clipped()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+            // Sprint 3: memory → disk → network, decoded off the main thread.
+            .task(id: url) {
+                guard let url else {
+                    image = nil
+                    return
+                }
+                image = CoverImageLoader.shared.cachedImage(for: url)
+                if image == nil {
+                    image = await CoverImageLoader.shared.image(for: url)
+                }
+            }
     }
 }
 
