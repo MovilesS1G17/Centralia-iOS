@@ -75,8 +75,8 @@ struct FolderDetailView: View {
                     viewModel.apply(updatedVideo)
                     folderChanged()
                 },
-                videoDeleted: { deletedVideo in
-                    viewModel.registerDeleted(deletedVideo)
+                videoDeleted: { deletedVideo, deletion in
+                    viewModel.registerDeleted(deletedVideo, deletion: deletion)
                     folderChanged()
                 }
             )
@@ -135,17 +135,21 @@ struct FolderDetailView: View {
         } message: {
             Text(viewModel.failureMessage ?? "Please try again.")
         }
-        .safeAreaInset(edge: .bottom) {
+        .overlay {
             if viewModel.recentlyDeletedVideo != nil {
-                LibraryUndoToast {
+                // Shake to undo: the pop-up the backend sent with the delete.
+                ShakeToUndoPopup(
+                    message: viewModel.undoDeletion?.undoMessage ?? VideoDeletion.defaultUndoMessage,
+                    expiresAt: viewModel.undoDeletion?.undoExpiresAt
+                ) { method in
                     Task {
-                        await viewModel.undoDelete()
+                        await viewModel.undoDelete(method: method)
                         folderChanged()
                     }
                 } dismiss: {
                     viewModel.dismissUndo()
                 }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.18), value: viewModel.recentlyDeletedVideo?.id)

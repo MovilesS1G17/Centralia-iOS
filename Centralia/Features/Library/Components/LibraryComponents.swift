@@ -290,34 +290,62 @@ struct MoveVideoSheet: View {
     }
 }
 
-struct LibraryUndoToast: View {
-    let undo: () -> Void
+/// Shake to undo: the pop-up shown after any short is deleted (Library, Search,
+/// a folder or the detail screen). The text comes from the backend's answer to
+/// the delete ("If you want to undo the delete, just shake the phone."). While
+/// it is up the accelerometer listens: shaking undoes the delete, like the Undo
+/// button. It closes by itself when the backend's undo window ends. Mirrors
+/// `ShakeToUndoPopup` in the Android app.
+struct ShakeToUndoPopup: View {
+    let message: String
+    let expiresAt: Date?
+    /// Called with `.shake` or `.button`, so the backend knows which was used.
+    let undo: (UndoMethod) -> Void
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: CentraliaTheme.Spacing.medium) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Video removed")
-                    .font(.subheadline.weight(.semibold))
-                Text("Shake to undo")
-                    .font(.caption)
-                    .opacity(0.75)
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .onTapGesture(perform: dismiss)
+
+            VStack(spacing: CentraliaTheme.Spacing.medium) {
+                Image(systemName: "trash")
+                    .font(.title2)
+                    .foregroundStyle(Color.centraliaInk)
+
+                Text("Video deleted")
+                    .font(.headline)
+                    .foregroundStyle(Color.centraliaInk)
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.centraliaSecondaryText)
+                    .multilineTextAlignment(.center)
+
+                HStack(spacing: CentraliaTheme.Spacing.medium) {
+                    Button("Dismiss", action: dismiss)
+                        .foregroundStyle(Color.centraliaSecondaryText)
+
+                    Button("Undo") { undo(.button) }
+                        .font(.headline)
+                        .foregroundStyle(Color.centraliaInk)
+                }
             }
-
-            Spacer()
-
-            Button("Undo", action: undo)
-                .font(.subheadline.weight(.bold))
-
-            Button("Dismiss", systemImage: "xmark", action: dismiss)
-                .labelStyle(.iconOnly)
+            .padding(CentraliaTheme.Spacing.large)
+            .frame(maxWidth: 320)
+            .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: CentraliaTheme.Radius.sheet))
+            .padding(.horizontal, CentraliaTheme.Spacing.large)
+            .accessibilityElement(children: .contain)
+            .accessibilityAddTraits(.isModal)
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, CentraliaTheme.Spacing.medium)
-        .frame(minHeight: 52)
-        .background(Color.centraliaInk, in: Capsule())
-        .padding(.horizontal, CentraliaTheme.Spacing.medium)
-        .padding(.bottom, CentraliaTheme.Spacing.small)
-        .onShake(perform: undo)
+        // Sensor feature: shaking the phone while the pop-up is up undoes the delete.
+        .onShake { undo(.shake) }
+        .task(id: expiresAt) {
+            guard let expiresAt else { return }
+            let seconds = max(0, expiresAt.timeIntervalSinceNow)
+            try? await Task.sleep(for: .seconds(seconds))
+            if !Task.isCancelled { dismiss() }
+        }
     }
 }
