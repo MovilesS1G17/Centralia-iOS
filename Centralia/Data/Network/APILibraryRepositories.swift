@@ -16,21 +16,24 @@ struct APILibraryClient {
     }
 
     func request<Response: Decodable>(
-        _ type: Response.Type, path: String, method: String = "GET", body: Data? = nil
+        _ type: Response.Type, path: String, method: String = "GET", body: Data? = nil,
+        query: [URLQueryItem] = [], headers: [String: String] = [:]
     ) async throws -> Response {
-        try await api.request(type, path: path, method: method, body: body)
+        try await api.request(type, path: path, method: method, body: body, query: query, headers: headers)
     }
 
-    func send(_ path: String, method: String, body: Data? = nil) async throws {
-        _ = try await api.send(path, method: method, body: body)
+    func send(_ path: String, method: String, body: Data? = nil, headers: [String: String] = [:]) async throws {
+        _ = try await api.send(path, method: method, body: body, headers: headers)
     }
 
     func encode<Body: Encodable>(_ body: Body) throws -> Data {
         try api.encode(body)
     }
 
-    func patch(_ path: String, values: [String: Any]) async throws {
-        try await send(path, method: "PATCH", body: JSONSerialization.data(withJSONObject: values))
+    func patch(_ path: String, values: [String: Any], headers: [String: String] = [:]) async throws {
+        try await send(
+            path, method: "PATCH", body: JSONSerialization.data(withJSONObject: values), headers: headers
+        )
     }
 }
 
@@ -119,12 +122,44 @@ struct APIVideoItemRepository: VideoItemRepository {
         _ = try await client.request(VideoDTO.self, path: "/v1/videos", method: "POST", body: body)
     }
 
-    func deleteVideo(id: UUID) async throws {
-        try await client.send("/v1/videos/\(id)", method: "DELETE")
+    @discardableResult
+    func deleteVideo(id: UUID) async throws -> VideoDeletion {
+        try await client.request(VideoDeletionDTO.self, path: "/v1/videos/\(id)", method: "DELETE").model
     }
 
     func restoreVideo(_ video: VideoItem) async throws {
-        _ = try await client.request(VideoDTO.self, path: "/v1/videos/\(video.id)/restore", method: "POST")
+        try await restoreVideo(video, method: .button)
+    }
+
+    func restoreVideo(_ video: VideoItem, method: UndoMethod) async throws {
+        _ = try await client.request(
+            VideoDTO.self, path: "/v1/videos/\(video.id)/restore", method: "POST",
+            headers: ["X-Undo-Method": method.rawValue]
+        )
+    }
+
+    /// Eventual connectivity: sends a change that was made offline.
+    /// `X-Queued-At` tells the backend when the user made it (Sprint 3 BQ6/BQ9).
+    func replay(_ action: PendingAction) async throws {
+        let headers = ["X-Queued-At": PendingAction.timestamp(action.queuedAt)]
+        let path = "/v1/videos/\(action.videoID)"
+        switch action.kind {
+        case .delete:
+            _ = try await client.request(VideoDeletionDTO.self, path: path, method: "DELETE", headers: headers)
+        case let .restore(method):
+            _ = try await client.request(
+                VideoDTO.self, path: path + "/restore", method: "POST",
+                headers: headers.merging(["X-Undo-Method": method.rawValue]) { $1 }
+            )
+        case let .move(folderID):
+            try await client.patch(
+                path, values: ["folderID": folderID?.uuidString.lowercased() ?? NSNull() as Any], headers: headers
+            )
+        case let .note(note):
+            try await client.patch(path, values: ["note": note ?? NSNull() as Any], headers: headers)
+        case let .tags(tags):
+            try await client.patch(path, values: ["tags": tags], headers: headers)
+        }
     }
 
     func moveVideo(id: UUID, to folderID: UUID?) async throws {
@@ -146,10 +181,13 @@ struct APIVideoItemRepository: VideoItemRepository {
 
 struct APIVideoPlaybackRepository: VideoPlaybackRepository {
     let client: APILibraryClient
+    /// Context-aware playback: the phone's current network, sent with /playback.
+    var network: @Sendable () -> NetworkType = { NetworkContextMonitor.shared.current }
 
     func playback(for videoID: UUID) async throws -> VideoPlayback {
         let dto = try await client.request(
-            VideoPlaybackDTO.self, path: "/v1/videos/\(videoID)/playback"
+            VideoPlaybackDTO.self, path: "/v1/videos/\(videoID)/playback",
+            query: [URLQueryItem(name: "network", value: network().rawValue)]
         )
         return try dto.model(configuration: client.api.configuration)
     }

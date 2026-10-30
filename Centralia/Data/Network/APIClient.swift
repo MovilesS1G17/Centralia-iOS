@@ -23,6 +23,14 @@ enum APIClientError: LocalizedError, Equatable {
     }
 }
 
+extension APIClientError {
+    /// True when the phone couldn't reach the server at all (no connection),
+    /// as opposed to the server answering with an error.
+    static func isOffline(_ error: Error) -> Bool {
+        (error as? APIClientError) == .networkUnavailable
+    }
+}
+
 private struct APIErrorEnvelope: Decodable {
     let code: String
     let detail: String
@@ -56,12 +64,18 @@ struct APIClient {
         method: String = "GET",
         body: Data? = nil,
         authenticated: Bool = true,
-        optionalAuthentication: Bool = false
+        optionalAuthentication: Bool = false,
+        query: [URLQueryItem] = [],
+        headers: [String: String] = [:]
     ) async throws -> Data {
-        var request = URLRequest(url: try configuration.endpoint(path: path))
+        let endpoint = try configuration.endpoint(path: path)
+        var request = URLRequest(url: query.isEmpty ? endpoint : endpoint.appending(queryItems: query))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ios", forHTTPHeaderField: "X-Client-Platform")
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -131,11 +145,14 @@ struct APIClient {
         method: String = "GET",
         body: Data? = nil,
         authenticated: Bool = true,
-        optionalAuthentication: Bool = false
+        optionalAuthentication: Bool = false,
+        query: [URLQueryItem] = [],
+        headers: [String: String] = [:]
     ) async throws -> Response {
         try decode(type, from: await send(
             path, method: method, body: body,
-            authenticated: authenticated, optionalAuthentication: optionalAuthentication
+            authenticated: authenticated, optionalAuthentication: optionalAuthentication,
+            query: query, headers: headers
         ))
     }
 }
