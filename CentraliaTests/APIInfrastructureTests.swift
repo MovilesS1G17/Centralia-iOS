@@ -125,6 +125,46 @@ struct APIInfrastructureTests {
         }
     }
 
+    @Test func deleteAnswerCarriesTheShakeToUndoPopup() throws {
+        let api = client()
+        let deletion = try api.decode(
+            VideoDeletionDTO.self,
+            from: Data(#"{"videoID":"5f0c2a3e-1111-4222-8333-944455556666","deletedAt":"2026-10-28T14:00:00Z","undoExpiresAt":"2026-10-28T14:05:00Z","undoMessage":"If you want to undo the delete, just shake the phone."}"#.utf8)
+        ).model
+        #expect(deletion.videoID == UUID(uuidString: "5F0C2A3E-1111-4222-8333-944455556666"))
+        #expect(deletion.undoMessage == "If you want to undo the delete, just shake the phone.")
+        #expect(deletion.undoExpiresAt == ISO8601DateFormatter().date(from: "2026-10-28T14:05:00Z"))
+    }
+
+    @Test func offlineDeletesUseTheSameTextAndWindowAsTheBackend() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let deletion = VideoDeletion.local(videoID: UUID(), now: now)
+        #expect(deletion.undoMessage == VideoDeletion.defaultUndoMessage)
+        #expect(deletion.undoExpiresAt == now.addingTimeInterval(300))
+    }
+
+    @Test func playbackSendsTheNetworkAndShowsDataSaver() async throws {
+        StubURLProtocol.handler = { request in
+            #expect(request.url?.path == "/v1/videos/11111111-1111-4111-8111-111111111111/playback")
+            #expect(request.url?.query == "network=cellular")
+            return (200, Data(#"{"streamURL":null,"streamReady":false,"embedURL":"https://www.youtube.com/embed/abc","dataSaver":true,"notice":"You're on mobile data, so this short plays in data saver mode."}"#.utf8))
+        }
+
+        let repository = APIVideoPlaybackRepository(client: APILibraryClient(api: client()), network: { .cellular })
+        let playback = try await repository.playback(for: UUID(uuidString: "11111111-1111-4111-8111-111111111111")!)
+        #expect(playback.dataSaver)
+        #expect(playback.streamURL == nil)
+        #expect(playback.notice == "You're on mobile data, so this short plays in data saver mode.")
+    }
+
+    @Test func networkTypeFollowsThePhonesConnection() {
+        #expect(NetworkType.from(connected: false, wifiOrEthernet: true, cellular: true) == .offline)
+        #expect(NetworkType.from(connected: true, wifiOrEthernet: true, cellular: true) == .wifi)
+        #expect(NetworkType.from(connected: true, wifiOrEthernet: false, cellular: true) == .cellular)
+        #expect(NetworkType.from(connected: true, wifiOrEthernet: false, cellular: false) == .unknown)
+        #expect(NetworkType.allCases.map(\.rawValue) == ["wifi", "cellular", "offline", "unknown"])
+    }
+
     @Test func missingBaseURLReturnsReadableError() throws {
         #expect(throws: APIClientError.self) {
             try APIConfiguration(baseURL: nil).endpoint(path: "/v1/me")
@@ -157,5 +197,66 @@ struct APIInfrastructureTests {
             ClientAnalyticsEvent(name: "screen_viewed", occurredAt: .now,
                                  properties: ["screen": .text("sign_up")])
         ])
+    }
+
+    // MARK: Sprint 3: eventual connectivity
+
+    @Test func replayingAnOfflineDeleteSendsWhenItWasQueued() async throws {
+        let id = UUID(uuidString: "5F0C2A3E-1111-4222-8333-944455556666")!
+        var seen: URLRequest?
+        StubURLProtocol.handler = { request in
+            seen = request
+            return (200, Data(#"{"videoID":"5f0c2a3e-1111-4222-8333-944455556666","deletedAt":"2026-10-28T14:00:00Z","undoExpiresAt":"2026-10-28T14:05:00Z","undoMessage":"x"}"#.utf8))
+        }
+        let queuedAt = ISO8601DateFormatter().date(from: "2026-10-28T13:58:30Z")!
+        let repository = APIVideoItemRepository(client: APILibraryClient(api: client()))
+        try await repository.replay(PendingAction(videoID: id, queuedAt: queuedAt, kind: .delete))
+
+        #expect(seen?.httpMethod == "DELETE")
+        #expect(seen?.url?.path == "/v1/videos/\(id)")
+        #expect(seen?.value(forHTTPHeaderField: "X-Queued-At") == "2026-10-28T13:58:30.000Z")
+    }
+
+    @Test func replayingOfflineTagsSendsThePatch() async throws {
+        var seen: URLRequest?
+        var body = Data()
+        StubURLProtocol.handler = { request in
+            seen = request
+            body = requestBody(request)
+            return (200, Data("{}".utf8))
+        }
+        let repository = APIVideoItemRepository(client: APILibraryClient(api: client()))
+        try await repository.replay(PendingAction(videoID: UUID(), queuedAt: .now, kind: .tags(["pasta"])))
+
+        #expect(seen?.httpMethod == "PATCH")
+        #expect(seen?.value(forHTTPHeaderField: "X-Queued-At") != nil)
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        #expect(json?["tags"] as? [String] == ["pasta"])
+    }
+
+    @Test func undoTellsTheBackendWhetherThePhoneWasShaken() async throws {
+        var method: String?
+        StubURLProtocol.handler = { request in
+            method = request.value(forHTTPHeaderField: "X-Undo-Method")
+            return (500, Data())
+        }
+        let repository = APIVideoItemRepository(client: APILibraryClient(api: client()))
+        let video = LibraryFixtures.video()
+        _ = try? await repository.restoreVideo(video, method: .shake)
+        #expect(method == "shake")
+        _ = try? await repository.restoreVideo(video)
+        #expect(method == "button")
+    }
+
+    @Test func onlyRejectionsThatCanNeverSucceedAreDroppedFromTheOutbox() {
+        func server(_ status: Int) -> APIClientError {
+            .server(status: status, code: "x", detail: "x", email: nil, retryAfter: nil)
+        }
+        #expect(SyncManager.isPermanentFailure(server(404)))
+        #expect(SyncManager.isPermanentFailure(server(410)))
+        #expect(!SyncManager.isPermanentFailure(server(408)))
+        #expect(!SyncManager.isPermanentFailure(server(429)))
+        #expect(!SyncManager.isPermanentFailure(server(503)))
+        #expect(!SyncManager.isPermanentFailure(APIClientError.networkUnavailable))
     }
 }
