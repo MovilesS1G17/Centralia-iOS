@@ -22,6 +22,8 @@ final class SearchViewModel {
     private(set) var folders: [LibraryFolder] = []
     private(set) var recentSearches: [String] = []
     private(set) var recentlyDeletedVideo: VideoItem?
+    /// Shake to undo: the pop-up the backend sent for `recentlyDeletedVideo`.
+    private(set) var undoDeletion: VideoDeletion?
 
     var query = ""
     var selectedPlatform: VideoPlatform?
@@ -95,8 +97,12 @@ final class SearchViewModel {
         state = .loading
 
         do {
-            videos = try await videoRepository.videos()
-            folders = try await folderRepository.folders()
+            // Sprint 3 (multithreading): both lists are requested at the same
+            // time with `async let` instead of one after the other.
+            async let loadedVideos = videoRepository.videos()
+            async let loadedFolders = folderRepository.folders()
+            videos = try await loadedVideos
+            folders = try await loadedFolders
             state = .loaded
         } catch {
             state = .failed(FeatureError.message(for: error))
@@ -162,19 +168,23 @@ final class SearchViewModel {
 
     func delete(_ video: VideoItem) async {
         do {
-            try await videoRepository.deleteVideo(id: video.id)
+            let deletion = try await videoRepository.deleteVideo(id: video.id)
             videos.removeAll { $0.id == video.id }
             recentlyDeletedVideo = video
+            undoDeletion = deletion
         } catch {
             presentFailure(error)
         }
     }
 
-    func undoDelete() async {
+    func undoDelete(method: UndoMethod = .button) async {
         guard let video = recentlyDeletedVideo else { return }
+        // Close the pop-up right away so a second shake can't restore twice.
+        recentlyDeletedVideo = nil
+        undoDeletion = nil
 
         do {
-            try await videoRepository.restoreVideo(video)
+            try await videoRepository.restoreVideo(video, method: method)
             videos.append(video)
             videos.sort { $0.savedAt > $1.savedAt }
             recentlyDeletedVideo = nil
@@ -185,6 +195,7 @@ final class SearchViewModel {
 
     func dismissUndo() {
         recentlyDeletedVideo = nil
+        undoDeletion = nil
     }
 
     func apply(_ video: VideoItem) {
@@ -192,9 +203,10 @@ final class SearchViewModel {
         videos[index] = video
     }
 
-    func registerDeleted(_ video: VideoItem) {
+    func registerDeleted(_ video: VideoItem, deletion: VideoDeletion? = nil) {
         videos.removeAll { $0.id == video.id }
         recentlyDeletedVideo = video
+        undoDeletion = deletion ?? .local(videoID: video.id)
     }
 
     func move(_ video: VideoItem, to folderID: UUID?) async {

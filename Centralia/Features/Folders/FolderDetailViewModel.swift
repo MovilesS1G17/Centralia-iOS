@@ -34,6 +34,8 @@ final class FolderDetailViewModel {
     private(set) var videos: [VideoItem] = []
     private(set) var folders: [LibraryFolder] = []
     private(set) var recentlyDeletedVideo: VideoItem?
+    /// Shake to undo: the pop-up the backend sent for `recentlyDeletedVideo`.
+    private(set) var undoDeletion: VideoDeletion?
     private(set) var failureMessage: String?
 
     var query = ""
@@ -118,20 +120,24 @@ final class FolderDetailViewModel {
 
     func delete(_ video: VideoItem) async {
         do {
-            try await videoRepository.deleteVideo(id: video.id)
+            let deletion = try await videoRepository.deleteVideo(id: video.id)
             videos.removeAll { $0.id == video.id }
             reconcileSelectedTags()
             recentlyDeletedVideo = video
+            undoDeletion = deletion
         } catch {
             presentFailure(error)
         }
     }
 
-    func undoDelete() async {
+    func undoDelete(method: UndoMethod = .button) async {
         guard let video = recentlyDeletedVideo else { return }
+        // Close the pop-up right away so a second shake can't restore twice.
+        recentlyDeletedVideo = nil
+        undoDeletion = nil
 
         do {
-            try await videoRepository.restoreVideo(video)
+            try await videoRepository.restoreVideo(video, method: method)
             videos.append(video)
             reconcileSelectedTags()
             recentlyDeletedVideo = nil
@@ -142,6 +148,7 @@ final class FolderDetailViewModel {
 
     func dismissUndo() {
         recentlyDeletedVideo = nil
+        undoDeletion = nil
     }
 
     func apply(_ video: VideoItem) {
@@ -157,10 +164,11 @@ final class FolderDetailViewModel {
         reconcileSelectedTags()
     }
 
-    func registerDeleted(_ video: VideoItem) {
+    func registerDeleted(_ video: VideoItem, deletion: VideoDeletion? = nil) {
         videos.removeAll { $0.id == video.id }
         reconcileSelectedTags()
         recentlyDeletedVideo = video
+        undoDeletion = deletion ?? .local(videoID: video.id)
     }
 
     func renameFolder(to name: String) async -> Bool {
