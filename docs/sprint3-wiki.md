@@ -8,13 +8,15 @@ Equipo: **Android** (Kotlin / Compose): Enrique, Alex · **iOS** (SwiftUI): Davi
 
 | Integrante | App | BQ nueva (Sprint 3) | Tipo | Estrategia que implementa | Dónde está |
 |---|---|---|---|---|---|
-| David | iOS | BQ6: ¿Cuánto esperan en el teléfono los cambios hechos offline antes de llegar al servidor? | 1 | **Multithreading**: `async let` para cargar videos y carpetas en paralelo; `actor`s para el disco y la sincronización; colas GCD en segundo plano para `NWPathMonitor` y para decodificar portadas | `Data/Offline/SyncManager.swift`, `ConnectivityMonitor.swift`, `Shared/Components/CoverImageLoader.swift`, `LibraryViewModel` / `SearchViewModel` |
-| Enrique | Android | BQ7: ¿Qué porcentaje de reproducciones son con datos móviles (ahorro de datos) en vez de Wi-Fi? | 2 | **Multithreading + caché**: corrutinas (`async`/`await` en `coroutineScope`, `Dispatchers.IO`, scope con `SupervisorJob`, `Mutex`); `LruCache` de reproducción y caché de memoria + disco de Coil para portadas | `data/offline/SyncManager.kt`, `data/local/LibraryMemoryCache.kt`, `CentraliaApplication.kt`, `LibraryViewModel` / `SearchViewModel` |
-| Alejandro | iOS | BQ8: Al deshacer un borrado, ¿qué tan seguido sacuden el teléfono en vez de tocar Undo? | 2 | **Almacenamiento local**: copia de la biblioteca en JSON (Application Support), outbox de cambios pendientes en JSON y perfil / búsquedas en `UserDefaults` | `Data/Local/LocalLibraryStore.swift`, `PendingActionQueue.swift`, `PendingAction.swift`, `Data/Offline/OfflineProfileRepositories.swift` |
-| Gustavo | iOS | BQ9: ¿Qué porcentaje de los cambios a la biblioteca se hacen sin conexión? | 2 | **Caché + conectividad eventual**: `NSCache` de reproducción con TTL de 10 min; portadas con `NSCache` + `URLCache` de 100 MB; repositorio offline-first y banner | `Data/Local/LibraryMemoryCache.swift`, `Data/Offline/OfflineFirstLibraryRepository.swift`, `Shared/Components/OfflineBanner.swift` |
-| Alex | Android | BQ10: ¿A qué hora del día guardan más shorts los usuarios? | 2 | **Almacenamiento local + conectividad eventual**: biblioteca y outbox en JSON (`filesDir/offline`), perfil y búsquedas en `SharedPreferences`; `ConnectivityObserver`, repositorio offline-first y banner | `data/local/LocalLibraryStore.kt`, `PendingActionQueue.kt`, `data/offline/OfflineFirstLibraryRepository.kt`, `platform/ConnectivityObserver.kt`, `ui/components/OfflineBanner.kt` |
+| David | iOS | BQ6 (Sprint 1 #2): ¿Cuánto tarda en cargar la biblioteca y cómo varía entre dispositivos? | 1 | **Multithreading**: `async let` para cargar videos y carpetas en paralelo; `actor`s para el disco y la sincronización; colas GCD en segundo plano para `NWPathMonitor` y para decodificar portadas | `Data/Offline/SyncManager.swift`, `ConnectivityMonitor.swift`, `Shared/Components/CoverImageLoader.swift`, `LibraryViewModel` / `SearchViewModel` |
+| Enrique | Android | BQ7 (Sprint 1 #9): ¿La plataforma de origen influye en la probabilidad de volver a abrir un short? | 3 | **Multithreading + caché**: corrutinas (`async`/`await` en `coroutineScope`, `Dispatchers.IO`, scope con `SupervisorJob`, `Mutex`); `LruCache` de reproducción y caché de memoria + disco de Coil para portadas | `data/offline/SyncManager.kt`, `data/local/LibraryMemoryCache.kt`, `CentraliaApplication.kt`, `LibraryViewModel` / `SearchViewModel` |
+| Alejandro | iOS | BQ8 (Sprint 1 #7): ¿Organizar con carpetas o tags hace que se vuelva a abrir más lo guardado? | 3 | **Almacenamiento local**: copia de la biblioteca en JSON (Application Support), outbox de cambios pendientes en JSON y perfil / búsquedas en `UserDefaults` | `Data/Local/LocalLibraryStore.swift`, `PendingActionQueue.swift`, `PendingAction.swift`, `Data/Offline/OfflineProfileRepositories.swift` |
+| Gustavo | iOS | BQ9 (Sprint 1 #14): ¿Cómo afecta el tiempo de respuesta de la búsqueda a la capacidad de reabrir lo guardado? | 5 | **Caché + conectividad eventual**: `NSCache` de reproducción con TTL de 10 min; portadas con `NSCache` + `URLCache` de 100 MB; repositorio offline-first y banner | `Data/Local/LibraryMemoryCache.swift`, `Data/Offline/OfflineFirstLibraryRepository.swift`, `Shared/Components/OfflineBanner.swift` |
+| Alex | Android | BQ10 (Sprint 1 #8): ¿Los usuarios crean carpetas y mueven shorts a mano lo suficiente para justificar auto-organización con IA? | 3 | **Almacenamiento local + conectividad eventual**: biblioteca y outbox en JSON (`filesDir/offline`), perfil y búsquedas en `SharedPreferences`; `ConnectivityObserver`, repositorio offline-first y banner | `data/local/LocalLibraryStore.kt`, `PendingActionQueue.kt`, `data/offline/OfflineFirstLibraryRepository.kt`, `platform/ConnectivityObserver.kt`, `ui/components/OfflineBanner.kt` |
 
-Las BQ del Sprint 2 (1–5) siguen en el dashboard; las del Sprint 3 (6–10) tienen su propia fila de métricas ("Sprint 3"). Ninguna se repite.
+Rutas de la columna "Dónde está": Android desde `app/src/main/java/com/centralia/app/`, iOS desde `Centralia/`.
+
+Todas las BQ del Sprint 3 salen de la lista entregada en el Sprint 1 (entre paréntesis su número) y son distintas a las del Sprint 2. Tipo 1 = rendimiento de la app; Tipo 3 = uso de features, respondida para el equipo en el dashboard (no se le muestra al usuario, por eso no es Tipo 2); Tipo 5 = cruza rendimiento con comportamiento. Las BQ del Sprint 2 (1–5) siguen en el dashboard; las del Sprint 3 (6–10) tienen su propia fila de métricas ("Sprint 3").
 
 ## 2. Features de la app
 
@@ -30,13 +32,13 @@ Las BQ del Sprint 2 (1–5) siguen en el dashboard; las del Sprint 3 (6–10) ti
 
 ## 3. Business questions del Sprint 3
 
-| BQ | Integrante | Tipo | Pregunta | Por qué importa | Eventos |
-|---|---|---|---|---|---|
-| 6 | David | 1 | ¿Cuánto esperan los cambios offline antes de llegar al servidor? | Mide si la sincronización funciona bien en la práctica. Si la espera es larga, los datos del usuario quedan desactualizados en otros dispositivos | `api_request` con `offline_queued` y `queue_delay_s` (header `X-Queued-At`) |
-| 7 | Enrique | 2 | ¿Qué porcentaje de reproducciones son con datos móviles? | Dice cuántos usuarios se benefician del ahorro de datos y si vale la pena invertir en más funciones para datos móviles | `playback_requested.network` |
-| 8 | Alejandro | 2 | ¿Qué tan seguido se deshace un borrado sacudiendo el teléfono? | Valida si el sensor se usa de verdad o si el botón basta | `video_restored.method` (header `X-Undo-Method`) |
-| 9 | Gustavo | 2 | ¿Qué porcentaje de cambios a la biblioteca se hacen offline? | Justifica el modo offline: si es alto, la cola de cambios es esencial | `api_request` de DELETE/PATCH/restore, encolados vs. todos |
-| 10 | Alex | 2 | ¿A qué hora del día guardan más shorts? | Orienta cuándo enviar recordatorios y cuándo esperar más carga en el backend | `video_saved.occurred_at` en la zona `ANALYTICS_TIMEZONE` |
+| BQ | Sprint 1 | Integrante | Tipo | Pregunta | Por qué importa | Eventos |
+|---|---|---|---|---|---|---|
+| 6 | #2 | David | 1 | ¿Cuánto tarda en cargar la biblioteca y cómo varía entre dispositivos? | La biblioteca es la primera pantalla; si tarda, el usuario abandona. Muestra si iOS o Android necesitan optimización y si se cumple el escenario de calidad de 2 s | `api_request` de `GET /v1/videos` y `GET /v1/folders`, por app |
+| 7 | #9 | Enrique | 3 | ¿La plataforma de origen influye en volver a abrir un short? | Dice en qué plataforma enfocar mejoras de importación y reproducción | `video_saved.video_platform` + reproducciones 30 min–7 días después |
+| 8 | #7 | Alejandro | 3 | ¿Organizar con carpetas o tags aumenta las reaperturas? | Valida la propuesta de valor: si organizar ayuda a recuperar, vale la pena empujar al usuario a organizar | `video_saved` (carpeta, tags) + `video_updated` + reaperturas |
+| 9 | #14 | Gustavo | 5 | ¿Cómo afecta el tiempo de búsqueda a reabrir lo guardado? | Conecta rendimiento con comportamiento: si la búsqueda lenta reduce reaperturas, optimizarla tiene impacto directo | Latencia de búsqueda por usuario (BQ1) + reaperturas |
+| 10 | #8 | Alex | 3 | ¿Se organiza a mano lo suficiente para justificar auto-organización con IA? | Decide si construir la feature premium de IA (regla: 1 o más acciones manuales por usuario por semana) | `POST /v1/folders` + `video_updated` con `folder` |
 
 Se responden en `app/analytics/business.py`, en `GET /v1/analytics/business-questions` y en el dashboard (una métrica por pregunta).
 
