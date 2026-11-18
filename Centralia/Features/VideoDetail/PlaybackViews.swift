@@ -76,7 +76,9 @@ struct EmbedPlayerView: UIViewRepresentable {
         view.backgroundColor = .clear
 
         if PlaybackURLPolicy.isAllowed(url) {
-            view.load(URLRequest(url: url))
+            var request = URLRequest(url: url)
+            request.setValue("https://co.edu.uniandes.centralia", forHTTPHeaderField: "Referer")
+            view.load(request)
         } else {
             let failed = failed
             DispatchQueue.main.async { failed() }

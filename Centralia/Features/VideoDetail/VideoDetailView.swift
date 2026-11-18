@@ -167,6 +167,11 @@ struct VideoDetailView: View {
         ZStack {
             thumbnailColor
 
+            if !isShowingPlayer, viewModel.video.coverURL != nil {
+                VideoCoverImage(url: viewModel.video.coverURL)
+                VideoCoverGradient()
+            }
+
             playbackContent
 
             Text(viewModel.video.platform.displayName)

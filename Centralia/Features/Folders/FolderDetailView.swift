@@ -438,8 +438,17 @@ private struct FolderDetailVideoCard: View {
     var body: some View {
         ZStack {
             Button(action: open) {
-                cardColor
-                    .contentShape(RoundedRectangle(cornerRadius: 24))
+                ZStack {
+                    cardColor
+                    if video.coverURL != nil {
+                        ZStack {
+                            VideoCoverImage(url: video.coverURL)
+                            VideoCoverGradient()
+                        }
+                        .padding(.bottom, 72)
+                    }
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 24))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(video.displayTitle)")
