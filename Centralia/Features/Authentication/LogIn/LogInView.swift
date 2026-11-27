@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct LogInView: View {
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
     @State private var viewModel: LogInViewModel
     @State private var showsPasswordReset = false
 
@@ -13,12 +11,15 @@ struct LogInView: View {
 
     init(
         repository: any AuthenticationRepository,
+        rememberedEmail: any RememberedEmailStoring = InMemoryRememberedEmailStore(),
         showSignUp: @escaping () -> Void,
         showEmailVerification: @escaping (EmailVerificationContext) -> Void,
         completeAuthentication: @escaping (AuthenticatedUser) -> Void
     ) {
         self.repository = repository
-        _viewModel = State(initialValue: LogInViewModel(repository: repository))
+        _viewModel = State(
+            initialValue: LogInViewModel(repository: repository, rememberedEmail: rememberedEmail)
+        )
         self.showSignUp = showSignUp
         self.showEmailVerification = showEmailVerification
         self.completeAuthentication = completeAuthentication
@@ -61,12 +62,30 @@ struct LogInView: View {
                         submitLabel: .done
                     )
 
-                    Button("Forgot password?") {
-                        showsPasswordReset = true
+                    HStack {
+                        Button {
+                            viewModel.rememberEmail.toggle()
+                        } label: {
+                            Label(
+                                "Remember my email",
+                                systemImage: viewModel.rememberEmail ? "checkmark.square.fill" : "square"
+                            )
+                            .font(.subheadline)
+                        }
+                        .foregroundStyle(Color.centraliaInk)
+                        .accessibilityValue(viewModel.rememberEmail ? "On" : "Off")
+                        .accessibilityIdentifier("rememberEmailToggle")
+                        .disabled(viewModel.isBusy)
+
+                        Spacer()
+
+                        Button("Forgot password?") {
+                            showsPasswordReset = true
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .disabled(viewModel.isBusy)
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .trailing)
-                    .disabled(viewModel.isBusy)
+                    .frame(minHeight: 44)
 
                     if let failureMessage = viewModel.failureMessage {
                         InlineAuthenticationError(message: failureMessage)
@@ -81,11 +100,7 @@ struct LogInView: View {
                     AuthenticationDivider(text: "or continue with")
                         .padding(.vertical, CentraliaTheme.Spacing.xSmall)
 
-                    let providerLayout = dynamicTypeSize.isAccessibilitySize
-                        ? AnyLayout(VStackLayout(spacing: CentraliaTheme.Spacing.medium))
-                        : AnyLayout(HStackLayout(spacing: CentraliaTheme.Spacing.medium))
-
-                    providerLayout {
+                    HStack(spacing: CentraliaTheme.Spacing.medium) {
                         socialButton(for: .apple)
                         socialButton(for: .google)
                     }
