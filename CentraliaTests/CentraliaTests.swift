@@ -791,7 +791,9 @@ struct CentraliaTests {
         let viewModel = SmartOrganizationViewModel(
             videoRepository: repository,
             folderRepository: repository,
-            suggestionPipeline: MockVideoImportPipeline(delay: .zero)
+            suggestionPipeline: MockVideoImportPipeline(delay: .zero),
+            cache: FolderSuggestionCache(directory: directory),
+            accountID: UUID()
         )
 
         await viewModel.load()
@@ -825,7 +827,9 @@ struct CentraliaTests {
         let viewModel = SmartOrganizationViewModel(
             videoRepository: repository,
             folderRepository: repository,
-            suggestionPipeline: MockVideoImportPipeline(delay: .zero)
+            suggestionPipeline: MockVideoImportPipeline(delay: .zero),
+            cache: FolderSuggestionCache(directory: directory),
+            accountID: UUID()
         )
 
         await viewModel.load()
@@ -877,7 +881,9 @@ struct CentraliaTests {
         let viewModel = SmartOrganizationViewModel(
             videoRepository: repository,
             folderRepository: repository,
-            suggestionPipeline: MockVideoImportPipeline(delay: .zero)
+            suggestionPipeline: MockVideoImportPipeline(delay: .zero),
+            cache: FolderSuggestionCache(directory: directory),
+            accountID: UUID()
         )
         await viewModel.load()
 

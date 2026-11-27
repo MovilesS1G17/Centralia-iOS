@@ -55,6 +55,8 @@ struct ContentView: View {
                         playbackRepository: container.videoPlaybackRepository,
                         offlineStatus: container.offlineStatus,
                         searchHistoryRepository: container.searchHistoryRepository,
+                        savedSearchStore: container.savedSearchStore,
+                        folderSuggestionCache: container.folderSuggestionCache,
                         userRepository: container.userRepository,
                         libraryExportService: container.libraryExportService,
                         authenticationRepository: container.authenticationRepository,
@@ -65,6 +67,7 @@ struct ContentView: View {
                 }
             }
         }
+        .tint(Color.centraliaInk)
         .animation(.easeInOut(duration: 0.2), value: container.session.phase)
         .task {
             await container.session.restoreAuthentication(

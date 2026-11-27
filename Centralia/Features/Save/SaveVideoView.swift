@@ -6,10 +6,12 @@ struct SaveVideoView: View {
     @State private var showsFolderPicker = false
     @State private var showsTagEditor = false
     @State private var showsDiscardConfirmation = false
+    @State private var showsBatchImport = false
     @State private var savedVideo: VideoItem?
     @FocusState private var focusedField: Field?
 
     private let videoSaved: () -> Void
+    private let pipeline: any VideoImportPipeline
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let playbackRepository: (any VideoPlaybackRepository)?
@@ -36,6 +38,7 @@ struct SaveVideoView: View {
                 analytics: analytics
             )
         )
+        self.pipeline = pipeline
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.playbackRepository = playbackRepository
@@ -58,9 +61,18 @@ struct SaveVideoView: View {
                 )
             } else {
                 saveForm
+                    .navigationDestination(isPresented: $showsBatchImport) {
+                        BatchImportView(pipeline: pipeline, videoRepository: videoRepository, libraryChanged: videoSaved) {
+                            if viewModel.isDraftDirty {
+                                showsBatchImport = false
+                            } else {
+                                dismiss()
+                            }
+                        }
+                    }
             }
         }
-        .interactiveDismissDisabled(viewModel.isDraftDirty && savedVideo == nil)
+        .interactiveDismissDisabled(showsBatchImport || (viewModel.isDraftDirty && savedVideo == nil))
         .task {
             viewModel.trackScreenViewed()
             await viewModel.loadFolders()
@@ -156,7 +168,7 @@ struct SaveVideoView: View {
             Text("Paste a TikTok, Reel, or Short link")
                 .font(.title3.weight(.bold))
 
-            TextField("https://www.youtube.com/shorts/…", text: $viewModel.urlText)
+            TextField(centralia: "https://www.youtube.com/shorts/…", text: $viewModel.urlText)
                 .textContentType(.URL)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
@@ -172,6 +184,19 @@ struct SaveVideoView: View {
                         .stroke(Color.centraliaInk, lineWidth: 2)
                 }
                 .accessibilityIdentifier("saveVideoURLField")
+
+            Button {
+                focusedField = nil
+                showsBatchImport = true
+            } label: {
+                Label("Import Multiple Links", systemImage: "link")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(CentraliaPressStyle())
+            .disabled(viewModel.isSaving)
+            .accessibilityIdentifier("openBatchImport")
         }
     }
 
@@ -242,7 +267,7 @@ struct SaveVideoView: View {
                         .stroke(
                             viewModel.folderSelectionError == nil
                                 ? Color.centraliaDivider
-                                : Color.red,
+                                : Color.centraliaError,
                             lineWidth: 1
                         )
                 }
@@ -254,7 +279,7 @@ struct SaveVideoView: View {
             if let errorMessage = viewModel.folderSelectionError {
                 Text(errorMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.centraliaError)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Error: \(errorMessage)")
                     .accessibilityIdentifier("saveVideoFolderError")
@@ -302,28 +327,28 @@ struct SaveVideoView: View {
             Text("Personal note")
                 .font(.headline)
 
-            ZStack(alignment: .topLeading) {
-                if viewModel.note.isEmpty {
-                    Text("Why is this short worth remembering?")
-                        .foregroundStyle(Color.centraliaSecondaryText)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 17)
-                        .allowsHitTesting(false)
+            TextEditor(text: $viewModel.note)
+                .focused($focusedField, equals: .note)
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .frame(minHeight: 124)
+                .accessibilityLabel("Personal note")
+                .accessibilityIdentifier("saveVideoNoteField")
+                .overlay(alignment: .topLeading) {
+                    if viewModel.note.isEmpty {
+                        Text("Why is this short worth remembering?")
+                            .foregroundStyle(Color.centraliaSecondaryText)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 17)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
                 }
-
-                TextEditor(text: $viewModel.note)
-                    .focused($focusedField, equals: .note)
-                    .scrollContentBackground(.hidden)
-                    .padding(10)
-                    .frame(minHeight: 124)
-                    .accessibilityLabel("Personal note")
-                    .accessibilityIdentifier("saveVideoNoteField")
-            }
-            .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.centraliaDivider, lineWidth: 1)
-            }
+                .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.centraliaDivider, lineWidth: 1)
+                }
         }
     }
 
@@ -341,24 +366,31 @@ struct SaveVideoView: View {
                     }
                 }
                 .font(.headline)
-                .foregroundStyle(Color.centraliaCanvas)
+                .foregroundStyle(viewModel.canSave ? Color.centraliaCanvas : Color.centraliaSecondaryText)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                .padding(.vertical, CentraliaTheme.Spacing.small)
                 .frame(maxWidth: .infinity, minHeight: 58)
-                .background(Color.centraliaInk, in: RoundedRectangle(cornerRadius: 16))
+                .background(
+                    viewModel.canSave ? Color.centraliaInk : Color.centraliaSoftSurface,
+                    in: RoundedRectangle(cornerRadius: 16)
+                )
             }
             .buttonStyle(CentraliaPressStyle())
             .disabled(!viewModel.canSave)
-            .opacity(viewModel.canSave ? 1 : 0.45)
             .accessibilityIdentifier("saveVideoButton")
 
             Button("Save without organizing") {
                 save(organized: false)
             }
             .font(.headline)
-            .foregroundStyle(Color.centraliaInk)
+            .foregroundStyle(viewModel.canSave ? Color.centraliaInk : Color.centraliaSecondaryText)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, CentraliaTheme.Spacing.medium)
+            .padding(.vertical, CentraliaTheme.Spacing.small)
             .frame(maxWidth: .infinity, minHeight: 50)
             .buttonStyle(CentraliaPressStyle())
             .disabled(!viewModel.canSave)
-            .opacity(viewModel.canSave ? 1 : 0.45)
             .accessibilityIdentifier("saveVideoUnorganizedButton")
         }
         .padding(.top, CentraliaTheme.Spacing.small)

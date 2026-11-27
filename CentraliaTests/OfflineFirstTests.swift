@@ -53,7 +53,7 @@ struct OfflineFirstTests {
     @Test func theOutboxSurvivesClosingTheApp() async {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let first = PendingActionQueue(directory: directory) { _ in }
+        let first = PendingActionQueue(directory: directory)
         await first.enqueue(action(.tags(["pasta"])))
         await first.enqueue(action(.move(folderID: nil)))
 

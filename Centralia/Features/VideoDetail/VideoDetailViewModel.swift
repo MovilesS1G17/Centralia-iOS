@@ -23,6 +23,7 @@ final class VideoDetailViewModel {
     private let folderRepository: any FolderRepository
     private let playbackRepository: (any VideoPlaybackRepository)?
     private let analytics: any AnalyticsTracking
+    private let networkType: () -> NetworkType
     private var hasTrackedScreen = false
     private var fallbackEmbedURL: URL?
 
@@ -37,6 +38,7 @@ final class VideoDetailViewModel {
     private(set) var playbackState: PlaybackState = .idle
     /// Context-aware playback: why the short plays in data saver mode (mobile data).
     private(set) var dataSaverNotice: String?
+    private(set) var canUseStandardPlayer = false
 
     /// False until a playback repository is provided; the screen then keeps
     /// its static preview.
@@ -67,31 +69,39 @@ final class VideoDetailViewModel {
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         playbackRepository: (any VideoPlaybackRepository)? = nil,
-        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
+        networkType: @escaping () -> NetworkType = { NetworkContextMonitor.shared.current }
     ) {
         self.video = video
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.playbackRepository = playbackRepository
         self.analytics = analytics
+        self.networkType = networkType
     }
 
-    func startPlayback() async {
+    func startPlayback(useStandardPlayer: Bool = false) async {
         guard let playbackRepository, playbackState != .loading else { return }
         playbackState = .loading
         fallbackEmbedURL = nil
         dataSaverNotice = nil
+        canUseStandardPlayer = false
 
         do {
-            let playback = try await playbackRepository.playback(for: video.id)
+            let playback = if useStandardPlayer {
+                try await playbackRepository.standardPlayback(for: video.id)
+            } else {
+                try await playbackRepository.playback(for: video.id)
+            }
             dataSaverNotice = playback.dataSaver ? playback.notice : nil
-            let embed = playback.embedURL.flatMap(Self.allowedURL)
+            let embed = playback.embedURL.flatMap(Self.allowedURL) ?? (playback.dataSaver ? savedEmbedURL : nil)
             let stream = playback.streamURL.flatMap(Self.allowedURL)
-            fallbackEmbedURL = embed
+            canUseStandardPlayer = playback.dataSaver && !useStandardPlayer
+            fallbackEmbedURL = useStandardPlayer ? nil : embed
 
             if let stream {
                 playbackState = .ready(.stream(stream))
-            } else if let embed {
+            } else if let embed = fallbackEmbedURL {
                 playbackState = .ready(.embed(embed))
             } else {
                 failPlayback(Self.playbackUnavailableMessage, reason: "playback_unavailable")
@@ -101,8 +111,25 @@ final class VideoDetailViewModel {
         } catch is CancellationError {
             playbackState = .idle
         } catch {
-            failPlayback(FeatureError.message(for: error), reason: FeatureError.code(for: error))
+            let reason = FeatureError.code(for: error)
+            if networkType() == .cellular, ["offline", "network_unavailable"].contains(reason) {
+                if !useStandardPlayer, let savedEmbedURL {
+                    playbackState = .ready(.embed(savedEmbedURL))
+                    analytics.track(.playStarted(videoID: video.id, platform: video.platform))
+                } else {
+                    failPlayback("Centralia couldn’t reach its server over mobile data. Try opening this short in its app.", reason: reason)
+                }
+                return
+            }
+            failPlayback(FeatureError.message(for: error), reason: reason)
         }
+    }
+
+    private var savedEmbedURL: URL? {
+        if let url = video.embedURL, url.scheme?.lowercased() == "https", PlaybackURLPolicy.isAllowed(url) {
+            return url
+        }
+        return ShortEmbed.fallbackPlayerURL(for: video.sourceURL, platform: video.platform)
     }
 
     /// The native stream could not be played: use the platform's player if there is one.
@@ -125,6 +152,7 @@ final class VideoDetailViewModel {
     func stopPlayback() {
         playbackState = .idle
         dataSaverNotice = nil
+        canUseStandardPlayer = false
     }
 
     private func failPlayback(_ message: String, reason: String) {

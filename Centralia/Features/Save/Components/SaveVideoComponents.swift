@@ -1,19 +1,25 @@
 import SwiftUI
 
 struct SaveImportStatusCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let metadata: ImportedVideoMetadata?
     let stage: VideoImportStage?
     let errorMessage: String?
 
     var body: some View {
-        HStack(spacing: CentraliaTheme.Spacing.medium) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: CentraliaTheme.Spacing.small))
+            : AnyLayout(HStackLayout(spacing: CentraliaTheme.Spacing.medium))
+
+        layout {
             thumbnail
 
             VStack(alignment: .leading, spacing: 6) {
                 if let errorMessage {
                     Label("Link not supported", systemImage: "exclamationmark.triangle.fill")
                         .font(.headline)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.centraliaError)
                     Text(errorMessage)
                         .font(.subheadline)
                         .foregroundStyle(Color.centraliaSecondaryText)
@@ -38,7 +44,9 @@ struct SaveImportStatusCard: View {
                 }
             }
 
-            Spacer(minLength: 0)
+            if !dynamicTypeSize.isAccessibilitySize {
+                Spacer(minLength: 0)
+            }
 
             if errorMessage == nil, stage == nil {
                 Image(systemName: "checkmark")
@@ -150,7 +158,7 @@ struct SaveFolderPickerSheet: View {
                 }
 
                 Section("New Folder") {
-                    TextField("Folder name", text: $newFolderName)
+                    TextField(centralia: "Folder name", text: $newFolderName)
                         .focused($newFolderIsFocused)
                         .submitLabel(.done)
                         .onSubmit(createFolder)
@@ -166,7 +174,7 @@ struct SaveFolderPickerSheet: View {
                     if let message = viewModel.folderFailureMessage {
                         Text(message)
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color.centraliaError)
                             .accessibilityLabel("Error: \(message)")
                     }
                 }
@@ -195,7 +203,7 @@ struct SaveFolderPickerSheet: View {
         folderID: UUID?
     ) -> some View {
         Button {
-            viewModel.selectedFolderID = folderID
+            viewModel.selectFolder(folderID)
             dismiss()
         } label: {
             HStack {
@@ -230,7 +238,7 @@ struct SaveTagEditorSheet: View {
         NavigationStack {
             Form {
                 Section("Add your own tag") {
-                    TextField("Tag", text: $tag)
+                    TextField(centralia: "Tag", text: $tag)
                         .focused($tagIsFocused)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -308,7 +316,7 @@ struct FlowLayout: Layout {
         var rowHeight: CGFloat = 0
 
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = size(of: subview, within: bounds.width)
             if x > bounds.minX, x + size.width > bounds.maxX {
                 x = bounds.minX
                 y += rowHeight + spacing
@@ -331,7 +339,7 @@ struct FlowLayout: Layout {
         var measuredWidth: CGFloat = 0
 
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = size(of: subview, within: width)
             if x > 0, x + size.width > width {
                 x = 0
                 y += rowHeight + spacing
@@ -343,6 +351,12 @@ struct FlowLayout: Layout {
         }
 
         return CGSize(width: measuredWidth, height: y + rowHeight)
+    }
+
+    private func size(of subview: LayoutSubview, within width: CGFloat) -> CGSize {
+        let ideal = subview.sizeThatFits(.unspecified)
+        guard ideal.width > width else { return ideal }
+        return subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
     }
 }
 

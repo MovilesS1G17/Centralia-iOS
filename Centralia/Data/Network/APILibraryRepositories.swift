@@ -141,8 +141,9 @@ struct APIVideoItemRepository: VideoItemRepository {
     /// Eventual connectivity: sends a change that was made offline.
     /// `X-Queued-At` tells the backend when the user made it (Sprint 3 BQ6/BQ9).
     func replay(_ action: PendingAction) async throws {
+        guard let videoID = action.videoID else { return }
         let headers = ["X-Queued-At": PendingAction.timestamp(action.queuedAt)]
-        let path = "/v1/videos/\(action.videoID)"
+        let path = "/v1/videos/\(videoID)"
         switch action.kind {
         case .delete:
             _ = try await client.request(VideoDeletionDTO.self, path: path, method: "DELETE", headers: headers)
@@ -159,6 +160,8 @@ struct APIVideoItemRepository: VideoItemRepository {
             try await client.patch(path, values: ["note": note ?? NSNull() as Any], headers: headers)
         case let .tags(tags):
             try await client.patch(path, values: ["tags": tags], headers: headers)
+        case .renameFolder:
+            break
         }
     }
 
@@ -185,9 +188,22 @@ struct APIVideoPlaybackRepository: VideoPlaybackRepository {
     var network: @Sendable () -> NetworkType = { NetworkContextMonitor.shared.current }
 
     func playback(for videoID: UUID) async throws -> VideoPlayback {
-        let dto = try await client.request(
+        try await requestPlayback(for: videoID, networkHint: network())
+    }
+
+    func standardPlayback(for videoID: UUID) async throws -> VideoPlayback {
+        // With no network hint, the endpoint uses its standard playback response.
+        try await requestPlayback(for: videoID, networkHint: nil)
+    }
+
+    private func requestPlayback(for videoID: UUID, networkHint: NetworkType?) async throws -> VideoPlayback {
+        let query = networkHint.map { [URLQueryItem(name: "network", value: $0.rawValue)] } ?? []
+        // A development server on the LAN may be unreachable from mobile data.
+        let isLocalHost = client.api.configuration.baseURL?.host.map(PlaybackURLPolicy.isLocalHost) ?? false
+        let timeout: TimeInterval? = (networkHint ?? network()) == .cellular && isLocalHost ? 4 : nil
+        let dto = try await client.api.request(
             VideoPlaybackDTO.self, path: "/v1/videos/\(videoID)/playback",
-            query: [URLQueryItem(name: "network", value: network().rawValue)]
+            query: query, timeout: timeout
         )
         return try dto.model(configuration: client.api.configuration)
     }
@@ -206,8 +222,18 @@ struct APIFolderRepository: FolderRepository {
     }
 
     func renameFolder(id: UUID, to name: String) async throws -> LibraryFolder {
+        try await renameFolder(id: id, to: name, headers: [:])
+    }
+
+    func renameFolder(id: UUID, to name: String, queuedAt: Date) async throws -> LibraryFolder {
+        try await renameFolder(id: id, to: name, headers: ["X-Queued-At": PendingAction.timestamp(queuedAt)])
+    }
+
+    private func renameFolder(id: UUID, to name: String, headers: [String: String]) async throws -> LibraryFolder {
         let body = try client.encode(FolderRenameBody(name: name))
-        return try await client.request(FolderDTO.self, path: "/v1/folders/\(id)", method: "PATCH", body: body).model
+        return try await client.request(
+            FolderDTO.self, path: "/v1/folders/\(id)", method: "PATCH", body: body, headers: headers
+        ).model
     }
 
     func deleteFolder(id: UUID) async throws {

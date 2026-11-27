@@ -20,7 +20,7 @@ enum VideoImportStage: Int, CaseIterable, Equatable, Sendable {
     }
 }
 
-struct ImportedVideoMetadata: Equatable, Sendable {
+nonisolated struct ImportedVideoMetadata: Codable, Equatable, Sendable {
     let sourceURL: URL
     let platform: VideoPlatform
     let creator: String
@@ -37,6 +37,26 @@ struct ImportedVideoMetadata: Equatable, Sendable {
         let minutes = durationSeconds / 60
         let seconds = durationSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    func makeVideo(id: UUID = UUID(), folderID: UUID? = nil, tags: [String] = [], note: String? = nil) -> VideoItem {
+        VideoItem(
+            id: id,
+            sourceURL: sourceURL,
+            platform: platform,
+            creator: creator,
+            durationSeconds: durationSeconds,
+            sourceCaption: sourceCaption,
+            transcript: transcript,
+            extractedOnScreenText: extractedOnScreenText,
+            generatedSummary: generatedSummary,
+            customTitle: nil,
+            folderID: folderID,
+            tags: tags,
+            note: note,
+            savedAt: Date(),
+            analysisStatus: .completed
+        )
     }
 }
 

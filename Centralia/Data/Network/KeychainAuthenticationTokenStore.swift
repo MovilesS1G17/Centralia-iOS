@@ -4,10 +4,25 @@ import Security
 protocol AuthenticationTokenStore {
     func accessToken() throws -> String?
     func save(accessToken: String) throws
+    func save(accessToken: String, verifiedUser: AuthenticatedUser) throws
+    func verifiedUser(forAccessToken accessToken: String) throws -> AuthenticatedUser?
     func clearAccessToken() throws
 }
 
+extension AuthenticationTokenStore {
+    func save(accessToken: String, verifiedUser _: AuthenticatedUser) throws {
+        try save(accessToken: accessToken)
+    }
+
+    func verifiedUser(forAccessToken _: String) throws -> AuthenticatedUser? { nil }
+}
+
 struct KeychainAuthenticationTokenStore: AuthenticationTokenStore {
+    private struct StoredSession: Codable {
+        let accessToken: String
+        let user: AuthenticatedUser
+    }
+
     private let service: String
     private let account = "centralia.authentication.access-token"
 
@@ -16,6 +31,24 @@ struct KeychainAuthenticationTokenStore: AuthenticationTokenStore {
     }
 
     func accessToken() throws -> String? {
+        guard let data = try read() else { return nil }
+        if data.first == UInt8(ascii: "{") {
+            return try decodeSession(data).accessToken
+        }
+        // Previous versions wrote the bearer token as a UTF-8 string.
+        guard let token = String(data: data, encoding: .utf8) else {
+            throw AuthenticationError.secureStorageUnavailable
+        }
+        return token
+    }
+
+    func verifiedUser(forAccessToken accessToken: String) throws -> AuthenticatedUser? {
+        guard let data = try read(), data.first == UInt8(ascii: "{") else { return nil }
+        let session = try decodeSession(data)
+        return session.accessToken == accessToken ? session.user : nil
+    }
+
+    private func read() throws -> Data? {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -26,19 +59,22 @@ struct KeychainAuthenticationTokenStore: AuthenticationTokenStore {
         if status == errSecItemNotFound {
             return nil
         }
-        guard status == errSecSuccess,
-              let data = item as? Data,
-              let token = String(data: data, encoding: .utf8) else {
+        guard status == errSecSuccess, let data = item as? Data else {
             throw AuthenticationError.secureStorageUnavailable
         }
-        return token
+        return data
     }
 
     func save(accessToken: String) throws {
-        guard let data = accessToken.data(using: .utf8) else {
-            throw AuthenticationError.secureStorageUnavailable
-        }
+        try write(Data(accessToken.utf8))
+    }
 
+    func save(accessToken: String, verifiedUser: AuthenticatedUser) throws {
+        let data = try JSONEncoder().encode(StoredSession(accessToken: accessToken, user: verifiedUser))
+        try write(data)
+    }
+
+    private func write(_ data: Data) throws {
         var attributes = baseQuery
         attributes[kSecValueData as String] = data
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
@@ -61,6 +97,14 @@ struct KeychainAuthenticationTokenStore: AuthenticationTokenStore {
     func clearAccessToken() throws {
         let status = SecItemDelete(baseQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw AuthenticationError.secureStorageUnavailable
+        }
+    }
+
+    private func decodeSession(_ data: Data) throws -> StoredSession {
+        do {
+            return try JSONDecoder().decode(StoredSession.self, from: data)
+        } catch {
             throw AuthenticationError.secureStorageUnavailable
         }
     }

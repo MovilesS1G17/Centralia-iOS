@@ -20,15 +20,25 @@ final class SmartOrganizationViewModel {
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let suggestionPipeline: any VideoImportPipeline
+    private let cache: FolderSuggestionCache
+    private let accountID: UUID
+    private var skippedIDs: Set<UUID> = []
+    private var currentLoadID: UUID?
 
     private(set) var state: LoadState = .idle
     private(set) var suggestions: [FolderSuggestion] = []
     private(set) var folders: [LibraryFolder] = []
     private(set) var unorganizedCount = 0
     private(set) var isMutating = false
+    private(set) var isRefreshing = false
+    private(set) var cachedSuggestionIDs: Set<UUID> = []
+    private(set) var connectionNeeded: Set<UUID> = []
+    private(set) var failedLookups: Set<UUID> = []
+    private(set) var refreshFailed = false
     private(set) var failureMessage: String?
 
     var selectedSuggestionID: UUID?
+    var hasSkipped: Bool { !skippedIDs.isEmpty }
 
     var selectedSuggestion: FolderSuggestion? {
         guard let selectedSuggestionID else { return suggestions.first }
@@ -38,39 +48,94 @@ final class SmartOrganizationViewModel {
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
-        suggestionPipeline: any VideoImportPipeline
+        suggestionPipeline: any VideoImportPipeline,
+        cache: FolderSuggestionCache,
+        accountID: UUID
     ) {
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.suggestionPipeline = suggestionPipeline
+        self.cache = cache
+        self.accountID = accountID
     }
 
-    func load() async {
+    func load(isOnline: () -> Bool = { true }) async {
         guard state == .idle || state.isFailure else { return }
-        state = .loading
+        await refresh(isOnline: isOnline, bypassCache: false)
+    }
+
+    func refresh(isOnline: () -> Bool, bypassCache: Bool = true) async {
+        guard !isMutating else { return }
+        let loadID = UUID()
+        currentLoadID = loadID
+        let hadResults = state == .loaded
+        refreshFailed = false
+        isRefreshing = hadResults
+        if !hadResults { state = .loading }
+        defer {
+            if currentLoadID == loadID {
+                isRefreshing = false
+                if state == .loading { state = .idle }
+            }
+        }
 
         do {
             async let loadedVideos = videoRepository.videos()
             async let loadedFolders = folderRepository.folders()
             let (videos, availableFolders) = try await (loadedVideos, loadedFolders)
             let unorganizedVideos = videos.filter { $0.folderID == nil }
+            let candidates = unorganizedVideos.filter { !skippedIDs.contains($0.id) }
+            let lookup = await cache.lookup(for: accountID, videos: candidates, folders: availableFolders)
+            try Task.checkCancellation()
+            guard currentLoadID == loadID else { return }
 
+            let report = try await makeSuggestions(
+                for: candidates, folders: availableFolders, lookup: lookup,
+                isOnline: isOnline, bypassCache: bypassCache
+            )
+            try Task.checkCancellation()
+            guard currentLoadID == loadID else { return }
+            await cache.save(report.updates, from: lookup)
+            try Task.checkCancellation()
+            guard currentLoadID == loadID else { return }
+
+            let selectedID = selectedSuggestionID
             folders = availableFolders
             unorganizedCount = unorganizedVideos.count
-            suggestions = await makeSuggestions(
-                for: unorganizedVideos,
-                folders: availableFolders
-            )
-            selectedSuggestionID = suggestions.first?.id
+            suggestions = report.suggestions
+            cachedSuggestionIDs = report.cachedIDs
+            connectionNeeded = report.connectionNeeded
+            failedLookups = report.failedLookups
+            selectedSuggestionID = suggestions.first(where: { $0.id == selectedID })?.id ?? suggestions.first?.id
             state = .loaded
+        } catch is CancellationError {
+            return
         } catch {
-            state = .failed(error.localizedDescription)
+            guard currentLoadID == loadID, !Task.isCancelled else { return }
+            if hadResults { refreshFailed = true }
+            else { state = .failed(FeatureError.message(for: error)) }
         }
     }
 
-    func retry() async {
-        state = .idle
-        await load()
+    /// A changed inventory invalidates prior suggestions immediately. Icon-only
+    /// updates retain the recommendation and use the latest folder presentation.
+    func updateFolders(_ updated: [LibraryFolder]) -> Bool {
+        guard state == .loaded, updated != folders else { return false }
+        let inventoryChanged = FolderSuggestionCache.FolderIdentity.inventory(updated)
+            != FolderSuggestionCache.FolderIdentity.inventory(folders)
+        folders = updated
+        if inventoryChanged {
+            suggestions = []
+            cachedSuggestionIDs = []
+            connectionNeeded = []
+            failedLookups = []
+            return true
+        }
+        suggestions = suggestions.map { suggestion in
+            let folder = updated.first { $0.id == suggestion.folder.id } ?? suggestion.folder
+            return FolderSuggestion(video: suggestion.video, folder: folder)
+        }
+        return false
     }
 
     @discardableResult
@@ -80,7 +145,9 @@ final class SmartOrganizationViewModel {
 
     @discardableResult
     func move(_ suggestion: FolderSuggestion, to folder: LibraryFolder) async -> Bool {
-        guard !isMutating else { return false }
+        guard !isMutating, !isRefreshing,
+              suggestions.contains(where: { $0.id == suggestion.id }),
+              folders.contains(where: { $0.id == folder.id }) else { return false }
         isMutating = true
         failureMessage = nil
         defer { isMutating = false }
@@ -97,25 +164,33 @@ final class SmartOrganizationViewModel {
     }
 
     func skip(_ suggestion: FolderSuggestion) {
-        guard !isMutating else { return }
+        guard !isMutating, !isRefreshing else { return }
+        skippedIDs.insert(suggestion.id)
         removeSuggestion(id: suggestion.id)
     }
 
-    func apply(_ updatedVideo: VideoItem) {
+    @discardableResult
+    func apply(_ updatedVideo: VideoItem) -> Bool {
         guard let index = suggestions.firstIndex(where: { $0.id == updatedVideo.id }) else {
-            return
+            return false
         }
 
         guard updatedVideo.folderID == nil else {
             unorganizedCount = max(0, unorganizedCount - 1)
             removeSuggestion(id: updatedVideo.id)
-            return
+            return false
+        }
+
+        if FolderSuggestionCache.Input(suggestions[index].video) != FolderSuggestionCache.Input(updatedVideo) {
+            removeSuggestion(id: updatedVideo.id)
+            return true
         }
 
         suggestions[index] = FolderSuggestion(
             video: updatedVideo,
             folder: suggestions[index].folder
         )
+        return false
     }
 
     func registerDeleted(_ video: VideoItem) {
@@ -128,43 +203,64 @@ final class SmartOrganizationViewModel {
         failureMessage = nil
     }
 
+    private struct SuggestionReport {
+        var suggestions: [FolderSuggestion] = []
+        var cachedIDs: Set<UUID> = []
+        var connectionNeeded: Set<UUID> = []
+        var failedLookups: Set<UUID> = []
+        var updates: [FolderSuggestionCache.Update] = []
+    }
+
     private func makeSuggestions(
         for videos: [VideoItem],
-        folders: [LibraryFolder]
-    ) async -> [FolderSuggestion] {
-        var values: [FolderSuggestion] = []
+        folders: [LibraryFolder],
+        lookup: FolderSuggestionCache.Lookup,
+        isOnline: () -> Bool,
+        bypassCache: Bool
+    ) async throws -> SuggestionReport {
+        var report = SuggestionReport()
+        var connectionLost = false
+        let foldersByID = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
 
         for video in videos {
-            guard !Task.isCancelled else { break }
+            try Task.checkCancellation()
+            let cachedFolder = lookup.folderIDs[video.id].flatMap { foldersByID[$0] }
 
-            let metadata = ImportedVideoMetadata(
-                sourceURL: video.sourceURL,
-                platform: video.platform,
-                creator: video.creator,
-                durationSeconds: video.durationSeconds,
-                sourceCaption: video.sourceCaption,
-                transcript: video.transcript,
-                extractedOnScreenText: video.extractedOnScreenText,
-                generatedSummary: video.generatedSummary
-            )
-
-            guard let folderName = try? await suggestionPipeline.suggestFolder(
-                for: metadata,
-                tags: video.tags
-            ),
-            let folder = folders.first(where: {
-                $0.name.localizedCaseInsensitiveCompare(folderName) == .orderedSame
-            }) else {
-                continue
+            if !connectionLost, isOnline(), bypassCache || cachedFolder == nil {
+                do {
+                    let input = FolderSuggestionCache.Input(video)
+                    let name = try await suggestionPipeline.suggestFolder(for: input.metadata, tags: input.tags)
+                    let folder = name.flatMap { name in
+                        folders.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
+                    }
+                    report.updates.append(.init(videoID: video.id, folderID: folder?.id))
+                    if let folder { report.suggestions.append(FolderSuggestion(video: video, folder: folder)) }
+                    continue
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    if APIClientError.isOffline(error) || (error as? URLError)?.code == .notConnectedToInternet {
+                        connectionLost = true
+                    } else {
+                        report.failedLookups.insert(video.id)
+                    }
+                }
             }
 
-            values.append(FolderSuggestion(video: video, folder: folder))
+            if let cachedFolder {
+                report.suggestions.append(FolderSuggestion(video: video, folder: cachedFolder))
+                report.cachedIDs.insert(video.id)
+            } else if connectionLost || !isOnline() {
+                report.connectionNeeded.insert(video.id)
+            }
         }
-
-        return values
+        return report
     }
 
     private func removeSuggestion(id: UUID) {
+        cachedSuggestionIDs.remove(id)
+        connectionNeeded.remove(id)
+        failedLookups.remove(id)
         guard let removedIndex = suggestions.firstIndex(where: { $0.id == id }) else {
             return
         }

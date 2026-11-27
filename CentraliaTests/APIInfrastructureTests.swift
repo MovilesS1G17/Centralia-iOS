@@ -11,19 +11,23 @@ private struct TestTokenStore: AuthenticationTokenStore {
 }
 
 private final class StubURLProtocol: URLProtocol {
-    static var handler: ((URLRequest) -> (Int, Data))!
+    static var handler: ((URLRequest) throws -> (Int, Data))!
 
     override class func canInit(with _: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let (status, data) = Self.handler(request)
-        let response = HTTPURLResponse(
-            url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        do {
+            let (status, data) = try Self.handler(request)
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
     }
 
     override func stopLoading() {}
@@ -48,13 +52,76 @@ private func requestBody(_ request: URLRequest) -> Data {
 @MainActor
 struct APIInfrastructureTests {
     private func client(token: String? = "test-token") -> APIClient {
+        client(tokenStore: TestTokenStore(token: token))
+    }
+
+    private func client(
+        tokenStore: any AuthenticationTokenStore,
+        baseURL: URL? = URL(string: "https://api.example.test")
+    ) -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         return APIClient(
-            configuration: APIConfiguration(baseURL: URL(string: "https://api.example.test")),
+            configuration: APIConfiguration(baseURL: baseURL),
             session: URLSession(configuration: configuration),
-            tokenStore: TestTokenStore(token: token)
+            tokenStore: tokenStore
         )
+    }
+
+    @Test func migratesAVerifiedSessionAndRestoresItOfflineUntilServerRejection() async throws {
+        let service = "centralia-test-\(UUID().uuidString)"
+        let store = KeychainAuthenticationTokenStore(service: service)
+        defer { try? store.clearAccessToken() }
+        let id = try #require(UUID(uuidString: "11111111-1111-4111-8111-111111111111"))
+        let token = offlineTestToken(userID: id, expiresAt: Date().addingTimeInterval(3600))
+        try store.save(accessToken: token)
+        StubURLProtocol.handler = { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)")
+            return (200, Data(#"{"id":"11111111-1111-4111-8111-111111111111","displayName":"April","email":"april@example.test","membershipStatus":"centraliaMember"}"#.utf8))
+        }
+        let verified = try await APIAuthenticationRepository(client: client(tokenStore: store)).restoreSession()
+        #expect(verified?.id == id)
+
+        let reopenedStore = KeychainAuthenticationTokenStore(service: service)
+        let reopened = APIAuthenticationRepository(client: client(tokenStore: reopenedStore))
+        StubURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+        #expect(try await reopened.restoreSession() == verified)
+
+        StubURLProtocol.handler = { _ in (401, Data()) }
+        #expect(try await reopened.restoreSession() == nil)
+        #expect(try reopenedStore.accessToken() == nil)
+        #expect(try reopenedStore.verifiedUser(forAccessToken: token) == nil)
+    }
+
+    @Test func offlineRestoreRequiresAMatchingVerifiedUserAndUnexpiredToken() async throws {
+        let store = KeychainAuthenticationTokenStore(service: "centralia-test-\(UUID().uuidString)")
+        defer { try? store.clearAccessToken() }
+        let user = AuthenticatedUser(id: UUID(), displayName: "April", email: nil)
+        let repository = APIAuthenticationRepository(client: client(tokenStore: store))
+        StubURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
+
+        let active = offlineTestToken(userID: user.id, expiresAt: Date().addingTimeInterval(3600))
+        try store.save(accessToken: active)
+        await #expect(throws: AuthenticationError.networkUnavailable) { try await repository.restoreSession() }
+
+        let expired = offlineTestToken(userID: user.id, expiresAt: Date().addingTimeInterval(-3600))
+        try store.save(accessToken: expired, verifiedUser: user)
+        await #expect(throws: AuthenticationError.networkUnavailable) { try await repository.restoreSession() }
+
+        let differentSubject = offlineTestToken(userID: UUID(), expiresAt: Date().addingTimeInterval(3600))
+        try store.save(accessToken: differentSubject, verifiedUser: user)
+        await #expect(throws: AuthenticationError.networkUnavailable) { try await repository.restoreSession() }
+    }
+
+    private func offlineTestToken(userID: UUID, expiresAt: Date) -> String {
+        let claims = """
+        {"sub":"\(userID)","exp":\(Int(expiresAt.timeIntervalSince1970))}
+        """
+        let payload = Data(claims.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "e30.\(payload).stub"
     }
 
     @Test func authenticatedRequestSendsV3HeadersAndDecodesProfile() async throws {
@@ -157,6 +224,41 @@ struct APIInfrastructureTests {
         #expect(playback.notice == "You're on mobile data, so this short plays in data saver mode.")
     }
 
+    @Test func standardPlaybackRequestsAStreamWithoutTheDataSaverHint() async throws {
+        let id = UUID()
+        StubURLProtocol.handler = { request in
+            #expect(request.url?.path == "/v1/videos/\(id)/playback")
+            #expect(request.url?.query == nil)
+            return (200, Data(#"{"streamURL":"/v1/streams/abc?expires=123&signature=xyz","streamReady":true}"#.utf8))
+        }
+
+        let repository = APIVideoPlaybackRepository(client: APILibraryClient(api: client()), network: { .cellular })
+        let playback = try await repository.standardPlayback(for: id)
+        #expect(playback.streamURL?.path == "/v1/streams/abc")
+        #expect(!playback.dataSaver)
+    }
+
+    @Test func playbackLimitsTheWaitForALocalAPIOnCellular() async throws {
+        StubURLProtocol.handler = { request in
+            #expect(request.timeoutInterval == 4)
+            #expect(request.url?.query == "network=cellular")
+            throw URLError(.timedOut)
+        }
+        let api = client(tokenStore: TestTokenStore(token: "test-token"), baseURL: URL(string: "http://192.168.1.5:8000"))
+        let repository = APIVideoPlaybackRepository(client: APILibraryClient(api: api), network: { .cellular })
+        await #expect(throws: APIClientError.networkUnavailable) {
+            try await repository.playback(for: UUID())
+        }
+    }
+
+    @Test func onlyYouTubeEmbedsReceiveTheAppReferer() throws {
+        let youtube = try #require(URL(string: "https://www.youtube.com/embed/example"))
+        let tiktok = try #require(URL(string: "https://www.tiktok.com/player/v1/123"))
+        let bundleID = "com.Example.Centralia"
+        #expect(EmbedPlayerView.embedRequest(for: youtube, bundleID: bundleID).value(forHTTPHeaderField: "Referer") == "https://com.example.centralia")
+        #expect(EmbedPlayerView.embedRequest(for: tiktok, bundleID: bundleID).value(forHTTPHeaderField: "Referer") == nil)
+    }
+
     @Test func networkTypeFollowsThePhonesConnection() {
         #expect(NetworkType.from(connected: false, wifiOrEthernet: true, cellular: true) == .offline)
         #expect(NetworkType.from(connected: true, wifiOrEthernet: true, cellular: true) == .wifi)
@@ -200,6 +302,23 @@ struct APIInfrastructureTests {
     }
 
     // MARK: Sprint 3: eventual connectivity
+
+    @Test func queuedFolderRenameUsesTheExistingPatchWithItsOriginalTimestamp() async throws {
+        let id = UUID()
+        let queuedAt = try #require(ISO8601DateFormatter().date(from: "2026-10-28T13:58:30Z"))
+        StubURLProtocol.handler = { request in
+            #expect(request.httpMethod == "PATCH")
+            #expect(request.url?.path == "/v1/folders/\(id)")
+            #expect(request.value(forHTTPHeaderField: "X-Queued-At") == "2026-10-28T13:58:30.000Z")
+            let body = try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: String]
+            #expect(body == ["name": "Workshop"])
+            return (200, Data("""
+            {"id":"\(id)","name":"Workshop","symbolName":"folder"}
+            """.utf8))
+        }
+        let repository = APIFolderRepository(client: APILibraryClient(api: client()))
+        #expect(try await repository.renameFolder(id: id, to: "Workshop", queuedAt: queuedAt).name == "Workshop")
+    }
 
     @Test func replayingAnOfflineDeleteSendsWhenItWasQueued() async throws {
         let id = UUID(uuidString: "5F0C2A3E-1111-4222-8333-944455556666")!

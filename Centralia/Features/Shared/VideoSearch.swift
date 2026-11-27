@@ -1,19 +1,22 @@
 import Foundation
 
-enum SearchFolderFilter: Equatable, Sendable {
+nonisolated enum SearchFolderFilter: Codable, Equatable, Sendable {
     case all
     case unorganized
     case folder(UUID)
 }
 
 /// What the user asked for. Empty fields do not narrow the result.
-struct VideoSearchCriteria: Equatable, Sendable {
+nonisolated struct VideoSearchCriteria: Codable, Equatable, Sendable {
     var text = ""
     var platform: VideoPlatform?
     var creator: String?
     var folder: SearchFolderFilter = .all
     /// A video must carry every selected tag (case-insensitive).
     var tags: Set<String> = []
+
+    var hasFilters: Bool { platform != nil || creator != nil || folder != .all || !tags.isEmpty }
+    var isSaveable: Bool { hasFilters || !terms.isEmpty }
 
     var terms: [String] {
         text

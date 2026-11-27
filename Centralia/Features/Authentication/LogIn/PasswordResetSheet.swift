@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct PasswordResetSheet: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @State private var viewModel: PasswordResetViewModel
     @Environment(\.dismiss) private var dismiss
     let completeAuthentication: (AuthenticatedUser) -> Void
@@ -21,46 +23,46 @@ struct PasswordResetSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
-                if viewModel.didSend {
-                    confirmationForm
-                } else {
-                    VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.small) {
-                        Text("Reset your password")
-                            .font(CentraliaTheme.Typography.display)
-                            .accessibilityAddTraits(.isHeader)
+            ScrollView {
+                VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
+                    if viewModel.didSend {
+                        confirmationForm
+                    } else {
+                        VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.small) {
+                            Text("Reset your password")
+                                .font(CentraliaTheme.Typography.display)
+                                .accessibilityAddTraits(.isHeader)
 
-                        Text("Enter the email associated with your Centralia account.")
-                            .foregroundStyle(Color.centraliaSecondaryText)
-                    }
-
-                    AuthenticationTextField(
-                        label: "Email",
-                        placeholder: "you@example.com",
-                        text: $viewModel.email,
-                        errorMessage: viewModel.emailError,
-                        contentType: .emailAddress,
-                        keyboardType: .emailAddress,
-                        submitLabel: .done
-                    )
-
-                    if let failureMessage = viewModel.failureMessage {
-                        InlineAuthenticationError(message: failureMessage)
-                    }
-
-                    CentraliaPrimaryButton(
-                        title: "Send reset code",
-                        isLoading: viewModel.isSubmitting
-                    ) {
-                        Task {
-                            await viewModel.sendReset()
+                            Text("Enter the email associated with your Centralia account.")
+                                .foregroundStyle(Color.centraliaSecondaryText)
                         }
-                    }
 
-                    Spacer()
+                        AuthenticationTextField(
+                            label: "Email",
+                            placeholder: "you@example.com",
+                            text: $viewModel.email,
+                            errorMessage: viewModel.emailError,
+                            contentType: .emailAddress,
+                            keyboardType: .emailAddress,
+                            submitLabel: .done
+                        )
+                        .onSubmit(sendResetCode)
+
+                        if let failureMessage = viewModel.failureMessage {
+                            InlineAuthenticationError(message: failureMessage)
+                        }
+
+                        CentraliaPrimaryButton(
+                            title: "Send reset code",
+                            isLoading: viewModel.isSubmitting,
+                            action: sendResetCode
+                        )
+                    }
                 }
+                .padding(CentraliaTheme.Spacing.large)
             }
-            .padding(CentraliaTheme.Spacing.large)
+            .scrollDismissesKeyboard(.interactively)
+            .accessibilityIdentifier("passwordResetForm")
             .background(Color.centraliaCanvas.ignoresSafeArea())
             .navigationTitle("Password reset")
             .navigationBarTitleDisplayMode(.inline)
@@ -72,7 +74,7 @@ struct PasswordResetSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
     }
 
@@ -102,7 +104,7 @@ struct PasswordResetSheet: View {
 
             AuthenticationTextField(
                 label: "New password",
-                placeholder: "At least 8 characters",
+                placeholder: AuthenticationValidation.passwordHint,
                 text: $viewModel.newPassword,
                 errorMessage: viewModel.newPasswordError,
                 contentType: .newPassword,
@@ -136,9 +138,11 @@ struct PasswordResetSheet: View {
             .font(.subheadline.weight(.semibold))
             .frame(minHeight: 44)
             .disabled(viewModel.isSubmitting)
-
-            Spacer()
         }
+    }
+
+    private func sendResetCode() {
+        Task { await viewModel.sendReset() }
     }
 
     private func confirmReset() {

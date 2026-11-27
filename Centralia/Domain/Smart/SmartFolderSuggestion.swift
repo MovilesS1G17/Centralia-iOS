@@ -35,7 +35,7 @@ struct SmartFolderSuggestion: Equatable, Sendable {
         let existingFolder = folders.first {
             $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
         }
-        guard existingFolder?.id != selectedFolderID else { return nil }
+        if let existingFolder, existingFolder.id == selectedFolderID { return nil }
 
         return SmartFolderSuggestion(
             folderName: existingFolder?.name ?? name,

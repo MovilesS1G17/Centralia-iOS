@@ -14,5 +14,7 @@
 		<string>Joan-Regular.ttf</string>
 		<string>InstrumentSerif-Regular.ttf</string>
 	</array>
+	<key>UIUserInterfaceStyle</key>
+	<string>Light</string>
 </dict>
 </plist>

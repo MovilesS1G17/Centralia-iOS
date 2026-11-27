@@ -1,26 +1,27 @@
 import SwiftUI
 
 struct SearchView: View {
-    private enum Route: Hashable {
-        case video(VideoItem)
-    }
-
+    @Environment(\.offlineLibraryStatus) private var offlineStatus
     @State private var viewModel: SearchViewModel
-    @State private var path: [Route] = []
-    @State private var playingVideoID: UUID?
+    @State private var path: [VideoDetailRoute] = []
     @State private var pendingDeletion: VideoItem?
     @State private var movingVideo: VideoItem?
+    @State private var savedSearchEntry: SavedSearchesSheet.Entry?
     @FocusState private var searchIsFocused: Bool
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let analytics: any AnalyticsTracking
     private let playbackRepository: (any VideoPlaybackRepository)?
+    private let savedSearchStore: SavedSearchStore
+    private let userID: UUID
 
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         searchHistoryRepository: any SearchHistoryRepository,
+        savedSearchStore: SavedSearchStore,
+        userID: UUID,
         playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
     ) {
@@ -34,6 +35,8 @@ struct SearchView: View {
         )
         self.analytics = analytics
         self.playbackRepository = playbackRepository
+        self.savedSearchStore = savedSearchStore
+        self.userID = userID
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
     }
@@ -50,6 +53,12 @@ struct SearchView: View {
 
                     filterMenus
 
+                    savedSearchActions
+
+                    if viewModel.selectedFolderIsUnavailable {
+                        unavailableFolder
+                    }
+
                     content
                 }
                 .padding(.horizontal, CentraliaTheme.Spacing.medium)
@@ -63,28 +72,30 @@ struct SearchView: View {
             .background(Color.centraliaCanvas.ignoresSafeArea())
             .foregroundStyle(Color.centraliaInk)
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: Route.self) { route in
-                switch route {
-                case let .video(video):
-                    VideoDetailView(
-                        video: video,
-                        videoRepository: videoRepository,
-                        folderRepository: folderRepository,
-                        playbackRepository: playbackRepository,
-                        analytics: analytics,
-                        videoChanged: { updatedVideo in
-                            viewModel.apply(updatedVideo)
-                        },
-                        videoDeleted: { deletedVideo, deletion in
-                            viewModel.registerDeleted(deletedVideo, deletion: deletion)
-                        }
-                    )
-                    .toolbar(.hidden, for: .tabBar)
-                }
+            .navigationDestination(for: VideoDetailRoute.self) { route in
+                VideoDetailView(
+                    video: route.video,
+                    videoRepository: videoRepository,
+                    folderRepository: folderRepository,
+                    playbackRepository: playbackRepository,
+                    analytics: analytics,
+                    startsPlaying: route.startsPlaying,
+                    videoChanged: { updatedVideo in
+                        viewModel.apply(updatedVideo)
+                    },
+                    videoDeleted: { deletedVideo, deletion in
+                        viewModel.registerDeleted(deletedVideo, deletion: deletion)
+                    }
+                )
+                .toolbar(.hidden, for: .tabBar)
             }
-            .task {
+            .task(id: offlineStatus?.syncRevision) {
                 viewModel.trackScreenViewed()
-                await viewModel.load()
+                if let revision = offlineStatus?.syncRevision, revision > 0 { await viewModel.retry() }
+                else { await viewModel.load() }
+            }
+            .onChange(of: offlineStatus?.folderSnapshot) { _, folders in
+                if let folders { viewModel.applyFolderSnapshot(folders) }
             }
             .alert("Couldn’t update your library", isPresented: failureBinding) {
                 Button("OK") {
@@ -99,6 +110,17 @@ struct SearchView: View {
                         await viewModel.move(video, to: folderID)
                     }
                 }
+            }
+            .sheet(item: $savedSearchEntry) { entry in
+                SavedSearchesSheet(
+                    entry: entry,
+                    store: savedSearchStore,
+                    userID: userID,
+                    folderLabel: { id in
+                        viewModel.folderName(for: id) ?? (viewModel.state == .loaded ? "Folder unavailable" : "Folder filter")
+                    },
+                    apply: viewModel.applySavedSearch
+                )
             }
             .confirmationDialog(
                 "Delete this video?",
@@ -143,7 +165,7 @@ struct SearchView: View {
                     .font(.title3)
                     .accessibilityHidden(true)
 
-                TextField("Search titles, creators, or tags", text: $viewModel.query)
+                TextField(centralia: "Search titles, creators, or tags", text: $viewModel.query)
                     .font(.body)
                     .focused($searchIsFocused)
                     .submitLabel(.search)
@@ -256,6 +278,64 @@ struct SearchView: View {
         .accessibilityLabel("Search filters")
     }
 
+    private var savedSearchActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: CentraliaTheme.Spacing.medium) {
+                savedSearchesButton.fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                saveSearchButton.fixedSize(horizontal: true, vertical: false)
+            }
+            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.xSmall) {
+                savedSearchesButton
+                saveSearchButton
+            }
+        }
+    }
+
+    private var savedSearchesButton: some View {
+        Button {
+            searchIsFocused = false
+            savedSearchEntry = .browse
+        } label: {
+            Label("Saved Searches", systemImage: "bookmark")
+                .font(.subheadline.weight(.semibold))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(CentraliaPressStyle())
+        .accessibilityIdentifier("openSavedSearches")
+    }
+
+    private var saveSearchButton: some View {
+        Button {
+            searchIsFocused = false
+            savedSearchEntry = .create(viewModel.criteria)
+        } label: {
+            Label("Save Search", systemImage: "plus")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .foregroundStyle(viewModel.criteria.isSaveable ? Color.centraliaCanvas : Color.centraliaSecondaryText)
+                .background(viewModel.criteria.isSaveable ? Color.centraliaInk : Color.centraliaSoftSurface, in: Capsule())
+        }
+        .buttonStyle(CentraliaPressStyle())
+        .disabled(!viewModel.criteria.isSaveable)
+        .accessibilityIdentifier("saveCurrentSearch")
+    }
+
+    private var unavailableFolder: some View {
+        VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.xSmall) {
+            Label("The selected folder is unavailable.", systemImage: "folder.badge.questionmark")
+                .font(.subheadline)
+                .foregroundStyle(Color.centraliaSecondaryText)
+            Button("Clear Folder Filter") { viewModel.selectedFolder = .all }
+                .font(.subheadline.weight(.semibold))
+                .frame(minHeight: 44)
+                .buttonStyle(CentraliaPressStyle())
+        }
+        .accessibilityIdentifier("savedSearchUnavailableFolder")
+    }
+
     private var platformMenu: some View {
         Menu {
             selectionButton(
@@ -280,6 +360,7 @@ struct SearchView: View {
             )
         }
         .accessibilityLabel("Platform filter")
+        .accessibilityValue(viewModel.selectedPlatform?.displayName ?? "All platforms")
     }
 
     private var creatorMenu: some View {
@@ -306,6 +387,7 @@ struct SearchView: View {
             )
         }
         .accessibilityLabel("Creator filter")
+        .accessibilityValue(viewModel.selectedCreator ?? "All creators")
     }
 
     private var folderMenu: some View {
@@ -339,6 +421,7 @@ struct SearchView: View {
             )
         }
         .accessibilityLabel("Folder filter")
+        .accessibilityValue(viewModel.selectedFolder == .all ? "All folders" : selectedFolderTitle)
     }
 
     private var tagsMenu: some View {
@@ -366,6 +449,7 @@ struct SearchView: View {
             )
         }
         .accessibilityLabel("Tags filter")
+        .accessibilityValue(viewModel.selectedTags.isEmpty ? "All tags" : selectedTagsTitle)
     }
 
     @ViewBuilder
@@ -386,8 +470,7 @@ struct SearchView: View {
                         await viewModel.retry()
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
             }
             .frame(maxWidth: .infinity, minHeight: 320)
 
@@ -418,7 +501,7 @@ struct SearchView: View {
                     description: Text("Save a short before searching your library.")
                 )
                 .frame(maxWidth: .infinity, minHeight: 280)
-            } else if viewModel.filteredVideos.isEmpty {
+            } else if viewModel.filteredVideos.isEmpty && !viewModel.selectedFolderIsUnavailable {
                 noResults
             } else {
                 resultsGrid
@@ -436,29 +519,14 @@ struct SearchView: View {
                 viewModel.clearSearch()
                 searchIsFocused = true
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.centraliaInk)
+            .buttonStyle(CentraliaProminentButtonStyle())
         }
         .frame(maxWidth: .infinity, minHeight: 280)
     }
 
     private var resultsGrid: some View {
-        let entries = Array(viewModel.filteredVideos.enumerated())
-        let leftEntries = entries.filter { $0.offset.isMultiple(of: 2) }
-        let rightEntries = entries.filter { !$0.offset.isMultiple(of: 2) }
-
-        return HStack(alignment: .top, spacing: 12) {
-            LazyVStack(spacing: 12) {
-                ForEach(leftEntries, id: \.element.id) { index, video in
-                    videoCard(video, styleIndex: index)
-                }
-            }
-
-            LazyVStack(spacing: 12) {
-                ForEach(rightEntries, id: \.element.id) { index, video in
-                    videoCard(video, styleIndex: index)
-                }
-            }
+        LibraryVideoGrid(videos: viewModel.filteredVideos) { video, index in
+            videoCard(video, styleIndex: index)
         }
     }
 
@@ -469,7 +537,7 @@ struct SearchView: View {
         case .unorganized:
             "Unorganized"
         case let .folder(folderID):
-            viewModel.folderName(for: folderID) ?? "Folder"
+            viewModel.folderName(for: folderID) ?? (viewModel.selectedFolderIsUnavailable ? "Folder unavailable" : "Folder")
         }
     }
 
@@ -495,12 +563,11 @@ struct SearchView: View {
         return LibraryVideoCard(
             video: video,
             styleIndex: stableStyleIndex,
-            isPlaying: playingVideoID == video.id,
             openDetail: {
-                path.append(.video(video))
+                path.append(VideoDetailRoute(video: video))
             },
-            togglePlayback: {
-                playingVideoID = playingVideoID == video.id ? nil : video.id
+            play: {
+                path.append(VideoDetailRoute(video: video, startsPlaying: true))
             },
             requestMove: {
                 movingVideo = video

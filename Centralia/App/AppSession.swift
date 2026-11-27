@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 @Observable
@@ -16,6 +17,7 @@ final class AppSession {
     var phase: Phase = .unauthenticated(.signUp)
     /// Sprint 3: removes this user's offline copy from the phone on sign-out.
     @ObservationIgnored var onSignOut: (() -> Void)?
+    @ObservationIgnored var onAuthenticated: ((UUID) -> Void)?
     private(set) var isRestoringSession: Bool
 
     init(isRestoringSession: Bool = false) {
@@ -36,6 +38,12 @@ final class AppSession {
 
     func completeAuthentication(with user: AuthenticatedUser) {
         phase = .authenticated(user)
+        onAuthenticated?(user.id)
+    }
+
+    var authenticatedUserID: UUID? {
+        guard case let .authenticated(user) = phase else { return nil }
+        return user.id
     }
 
     func updateAuthenticatedUser(_ user: AuthenticatedUser) {

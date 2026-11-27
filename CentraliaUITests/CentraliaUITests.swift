@@ -7,7 +7,7 @@ final class CentraliaUITests: XCTestCase {
 
     @MainActor
     func testSignUpAndLogInNavigation() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Save every short worth keeping."].waitForExistence(timeout: 3))
@@ -22,7 +22,7 @@ final class CentraliaUITests: XCTestCase {
 
     @MainActor
     func testEmailSignUpShowsInlineValidation() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with email"].tap()
@@ -30,12 +30,40 @@ final class CentraliaUITests: XCTestCase {
         app.buttons["Create account"].tap()
 
         XCTAssertTrue(app.staticTexts["Error: Enter a valid email address."].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Error: Use at least 8 characters."].exists)
+        XCTAssertTrue(app.staticTexts["Error: Use at least 8 characters, with letters and numbers."].exists)
+    }
+
+    @MainActor
+    func testPasswordResetRemainsReadableWithAccessibilityText() throws {
+        let app = makeApp()
+        useAccessibilityText(in: app)
+        app.launch()
+
+        app.buttons["Log In"].tap()
+        app.buttons["Forgot password?"].tap()
+
+        let sheet = app.scrollViews["passwordResetForm"]
+        let email = sheet.textFields["Email"]
+        XCTAssertTrue(email.waitForExistence(timeout: 3))
+        email.tap()
+        email.typeText("reader@example.com\n")
+
+        let code = sheet.textFields["Verification code"]
+        XCTAssertTrue(code.waitForExistence(timeout: 3))
+        let reset = sheet.buttons["Reset password"]
+        for _ in 0..<8 where !reset.isHittable {
+            sheet.swipeUp()
+        }
+        XCTAssertTrue(reset.isHittable)
+        reset.tap()
+        let error = sheet.staticTexts["Error: Use at least 8 characters, with letters and numbers."]
+        XCTAssertTrue(error.waitForExistence(timeout: 3))
+        capture("Password reset with accessibility text")
     }
 
     @MainActor
     func testLibraryLoadsAndFiltersSavedShorts() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with Apple"].tap()
@@ -57,11 +85,13 @@ final class CentraliaUITests: XCTestCase {
 
     @MainActor
     func testSearchUpdatesResultsWhileTyping() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with Apple"].tap()
-        app.tabBars.buttons["Search"].tap()
+        let searchTab = app.tabBars.buttons["Search"]
+        XCTAssertTrue(searchTab.waitForExistence(timeout: 5))
+        searchTab.tap()
 
         XCTAssertTrue(app.staticTexts["Shorts in your library"].waitForExistence(timeout: 3))
 
@@ -80,8 +110,109 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testSavedSearchSurvivesRelaunchAndReappliesFiltersOffline() {
+        let app = makeApp()
+        app.launchEnvironment["CENTRALIA_UI_TEST_DATA_ID"] = UUID().uuidString
+        app.launch()
+
+        func openSearch() {
+            app.buttons["Continue with Apple"].tap()
+            let searchTab = app.buttons["Search"].firstMatch
+            XCTAssertTrue(searchTab.waitForExistence(timeout: 8))
+            searchTab.tap()
+            XCTAssertTrue(app.staticTexts["Shorts in your library"].waitForExistence(timeout: 4))
+        }
+
+        openSearch()
+        let field = app.textFields["globalSearchField"]
+        field.tap()
+        field.typeText("ceramics")
+        app.buttons["Platform filter"].tap()
+        app.buttons["Instagram Reel"].tap()
+        app.buttons["Folder filter"].tap()
+        app.buttons["Design"].tap()
+        app.buttons["saveCurrentSearch"].tap()
+
+        let name = app.textFields["savedSearchName"]
+        XCTAssertTrue(name.waitForExistence(timeout: 4))
+        XCTAssertEqual(name.value as? String, "ceramics")
+        app.buttons["commitSavedSearchName"].tap()
+
+        let savedRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'applySavedSearch.'")).firstMatch
+        XCTAssertTrue(savedRow.waitForExistence(timeout: 4))
+        XCTAssertTrue(savedRow.label.contains("ceramics"))
+        capture("Saved Searches")
+
+        app.terminate()
+        app.launchArguments += ["--offline-ui-testing"]
+        app.launch()
+        openSearch()
+        XCTAssertTrue(app.staticTexts["You're offline. Showing your saved library."].exists)
+        XCTAssertEqual(app.buttons["Platform filter"].value as? String, "All platforms")
+        app.buttons["openSavedSearches"].tap()
+        XCTAssertTrue(savedRow.waitForExistence(timeout: 4))
+
+        app.buttons["Actions for ceramics"].tap()
+        app.buttons["Rename"].tap()
+        XCTAssertTrue(name.waitForExistence(timeout: 4))
+        name.tap()
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "ceramics".count))
+        name.typeText("Workshop")
+        app.buttons["commitSavedSearchName"].tap()
+        XCTAssertTrue(savedRow.waitForExistence(timeout: 4))
+        XCTAssertTrue(savedRow.label.contains("Workshop"))
+        savedRow.tap()
+
+        XCTAssertTrue(app.staticTexts["Centering clay on the wheel"].waitForExistence(timeout: 4))
+        XCTAssertEqual(field.value as? String, "ceramics")
+        XCTAssertEqual(app.buttons["Platform filter"].value as? String, "Instagram Reel")
+        XCTAssertEqual(app.buttons["Folder filter"].value as? String, "Design")
+        XCTAssertFalse(app.staticTexts["Three color rules"].exists)
+        capture("Saved search applied after offline relaunch")
+    }
+
+    @MainActor
+    func testBatchImportSavesValidLinksAndPreservesTheSingleLinkDraft() {
+        let app = makeApp()
+        app.launch()
+        app.buttons["Continue with Apple"].tap()
+
+        let saveTab = app.buttons["Save"].firstMatch
+        XCTAssertTrue(saveTab.waitForExistence(timeout: 8))
+        saveTab.tap()
+        let singleLink = app.textFields["saveVideoURLField"]
+        XCTAssertTrue(singleLink.waitForExistence(timeout: 4))
+        let originalDraft = "https://www.youtube.com/shorts/individual"
+        singleLink.tap()
+        singleLink.typeText(originalDraft)
+        app.buttons["openBatchImport"].tap()
+
+        let input = app.textViews["batchImportLinks"]
+        XCTAssertTrue(input.waitForExistence(timeout: 4))
+        input.tap()
+        input.typeText("https://www.youtube.com/shorts/batchone\ninvalid\nhttps://www.instagram.com/reel/batchtwo")
+        app.buttons["batchImportCheck"].tap()
+
+        let save = app.buttons["batchImportSave"]
+        XCTAssertTrue(save.waitForExistence(timeout: 6))
+        XCTAssertEqual(save.label, "Save 2 to Unorganized")
+        let invalid = app.descendants(matching: .any)["batchImportRow.1"]
+        XCTAssertTrue(invalid.label.contains("Enter a complete link"))
+        capture("Batch import review")
+        save.tap()
+
+        let done = app.buttons["batchImportDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 6))
+        XCTAssertEqual(app.staticTexts["batchImportSavedCount"].label, "2 saved to Unorganized")
+        capture("Batch import complete")
+        done.tap()
+        XCTAssertTrue(singleLink.waitForExistence(timeout: 4))
+        XCTAssertEqual(singleLink.value as? String, originalDraft)
+    }
+
+    @MainActor
     func testSaveVideoAnalyzesAndPersistsAnUnorganizedShort() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with Apple"].tap()
@@ -161,7 +292,7 @@ final class CentraliaUITests: XCTestCase {
 
     @MainActor
     func testVideoDetailEditsTagsAndChangesFolderState() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with Apple"].tap()
@@ -207,8 +338,75 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testNewFolderAppearsInTheEmptyLibraryAndCanReceiveAShort() throws {
+        let app = makeApp()
+        app.launchArguments += ["--empty-library", "--folder-sync-ui-testing"]
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        let saveShort = app.buttons["Save a Short"]
+        XCTAssertTrue(saveShort.waitForExistence(timeout: 5))
+        XCTAssertTrue(saveShort.isHittable)
+        XCTAssertFalse(app.buttons["New Folder"].exists)
+        capture("Empty library actions")
+
+        saveShort.tap()
+        XCTAssertTrue(app.staticTexts["Save Short Video"].waitForExistence(timeout: 3))
+        app.buttons["Close"].tap()
+
+        app.tabBars.buttons["Folders"].tap()
+        let newFolderButton = app.buttons["newFolderButton"]
+        XCTAssertTrue(newFolderButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(newFolderButton.isHittable)
+        XCTAssertTrue(app.staticTexts["Create your first folder"].waitForExistence(timeout: 3))
+        capture("Empty folders actions")
+
+        newFolderButton.tap()
+        let folderName = "First folder"
+        let nameField = app.textFields["newFolderNameField"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        nameField.tap()
+        nameField.typeText(folderName)
+        app.buttons["saveNewFolderButton"].tap()
+
+        let createdFolder = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", folderName)
+        ).firstMatch
+        XCTAssertTrue(createdFolder.waitForExistence(timeout: 3))
+
+        app.tabBars.buttons["Library"].tap()
+        let shortcut = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", folderName)).firstMatch
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 3))
+        XCTAssertTrue(shortcut.label.contains("0 shorts"))
+
+        app.tabBars.buttons["Save"].tap()
+        app.buttons["saveVideoFolderPicker"].tap()
+        let destination = app.buttons[folderName]
+        XCTAssertTrue(destination.waitForExistence(timeout: 3))
+        destination.tap()
+
+        let urlField = app.textFields["saveVideoURLField"]
+        urlField.tap()
+        urlField.typeText("https://www.youtube.com/shorts/new-folder-test")
+        let saveVideo = app.buttons["saveVideoButton"]
+        app.swipeUp()
+        let isEnabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: saveVideo)
+        XCTAssertEqual(XCTWaiter.wait(for: [isEnabled], timeout: 6), .completed)
+        saveVideo.tap()
+        XCTAssertTrue(app.staticTexts[folderName].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 5))
+        XCTAssertTrue(shortcut.label.contains("1 short"))
+
+        let play = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Play ")).firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 5))
+        play.tap()
+        XCTAssertTrue(app.buttons["More video actions"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testFoldersCreatesAndOpensAFolderDetail() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with Apple"].tap()
@@ -255,8 +453,100 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testOfflineFolderRenameSurvivesRelaunchAndSyncsWhenOnline() {
+        let app = makeApp()
+        app.launchEnvironment["CENTRALIA_UI_TEST_DATA_ID"] = UUID().uuidString
+        app.launchArguments += ["--folder-sync-ui-testing"]
+
+        func openFolder(named name: String) {
+            app.buttons["Continue with Apple"].tap()
+            let folders = app.buttons["Folders"].firstMatch
+            XCTAssertTrue(folders.waitForExistence(timeout: 8))
+            folders.tap()
+            let folder = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(name),")).firstMatch
+            XCTAssertTrue(folder.waitForExistence(timeout: 8))
+            folder.tap()
+            XCTAssertTrue(app.buttons["folderDetailSort"].waitForExistence(timeout: 5))
+        }
+
+        app.launch()
+        openFolder(named: "Design")
+        app.terminate()
+
+        let newName = "Studio Offline"
+        app.launchArguments += ["--offline-ui-testing"]
+        app.launch()
+        openFolder(named: "Design")
+        app.buttons["folderDetailMoreActions"].tap()
+        app.buttons["Rename Folder"].tap()
+        let name = app.textFields["renameFolderNameField"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "Design".count))
+        name.typeText(newName)
+        app.buttons["saveFolderRename"].tap()
+
+        let pending = app.staticTexts["folderRenamePending"]
+        XCTAssertTrue(pending.waitForExistence(timeout: 6))
+        XCTAssertTrue(app.staticTexts[newName].exists)
+        capture("Folder rename pending offline")
+        app.terminate()
+
+        app.launch()
+        openFolder(named: newName)
+        XCTAssertTrue(pending.waitForExistence(timeout: 4))
+        app.terminate()
+
+        app.launchArguments.removeAll { $0 == "--offline-ui-testing" }
+        app.launch()
+        openFolder(named: newName)
+        let noPending = NSPredicate(format: "exists == false")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: noPending, object: pending)], timeout: 6), .completed)
+        XCTAssertTrue(app.staticTexts[newName].exists)
+        capture("Folder rename synchronized")
+    }
+
+    @MainActor
+    func testFolderPDFCanBePreviewedAndShared() {
+        let app = makeApp()
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        let foldersTab = app.buttons["Folders"].firstMatch
+        XCTAssertTrue(foldersTab.waitForExistence(timeout: 8))
+        foldersTab.tap()
+
+        let designFolder = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Design'")).firstMatch
+        XCTAssertTrue(designFolder.waitForExistence(timeout: 5))
+        designFolder.tap()
+        XCTAssertTrue(app.buttons["folderDetailSort"].waitForExistence(timeout: 5))
+        app.buttons["folderDetailMoreActions"].tap()
+        app.buttons["Export Folder as PDF"].tap()
+
+        let preview = app.buttons["folderPDFPreview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 8))
+        capture("Folder PDF ready")
+        preview.tap()
+        XCTAssertTrue(app.navigationBars["Folder PDF"].waitForExistence(timeout: 5))
+        capture("Folder PDF preview")
+
+        app.buttons["Done"].tap()
+        XCTAssertTrue(preview.waitForExistence(timeout: 5))
+        preview.tap()
+        let share = app.buttons["folderPDFShare"]
+        XCTAssertTrue(share.waitForExistence(timeout: 5))
+        share.tap()
+        let sharedFilename = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Centralia - Design"))
+            .firstMatch
+        XCTAssertTrue(sharedFilename.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Save to Files"].exists)
+        capture("Folder PDF share sheet")
+    }
+
+    @MainActor
     func testFolderDetailSearchSortAndTagsStayInsideCurrentFolder() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with Apple"].tap()
@@ -303,12 +593,53 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testFolderSuggestionsComeFromCacheAfterOfflineRelaunch() {
+        let app = makeApp()
+        app.launchEnvironment["CENTRALIA_UI_TEST_DATA_ID"] = UUID().uuidString
+        func openUnorganized() {
+            app.buttons["Continue with Apple"].tap()
+            let folders = app.buttons["Folders"].firstMatch
+            XCTAssertTrue(folders.waitForExistence(timeout: 8))
+            folders.tap()
+            let unorganized = app.buttons["unorganizedCollection"]
+            XCTAssertTrue(unorganized.waitForExistence(timeout: 6))
+            unorganized.tap()
+        }
+
+        app.launch()
+        openUnorganized()
+        let pager = app.descendants(matching: .any)["smartOrganizationPager"]
+        XCTAssertTrue(pager.waitForExistence(timeout: 6))
+        let refresh = app.buttons["refreshFolderSuggestions"]
+        XCTAssertTrue(refresh.exists)
+        let folderAction = pager.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Suggested folder ")).firstMatch
+        XCTAssertTrue(folderAction.waitForExistence(timeout: 4))
+        let suggestedFolder = folderAction.label
+        XCTAssertEqual(suggestedFolder, "Suggested folder Design. Change folder")
+        app.terminate()
+
+        app.launchArguments += ["--offline-ui-testing"]
+        app.launch()
+        openUnorganized()
+        let cached = app.descendants(matching: .any)["savedFolderSuggestions"]
+        XCTAssertTrue(cached.waitForExistence(timeout: 6))
+        XCTAssertTrue(pager.exists)
+        XCTAssertTrue(folderAction.waitForExistence(timeout: 4))
+        XCTAssertEqual(folderAction.label, suggestedFolder)
+        XCTAssertFalse(refresh.exists)
+        XCTAssertTrue(app.staticTexts["You're offline. Showing your saved library."].exists)
+        capture("Saved organization suggestions after offline relaunch")
+    }
+
+    @MainActor
     func testSmartOrganizationSkipKeepsTheVideoUnorganized() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with Apple"].tap()
-        app.tabBars.buttons["Folders"].tap()
+        let foldersTab = app.tabBars.buttons["Folders"]
+        XCTAssertTrue(foldersTab.waitForExistence(timeout: 5))
+        foldersTab.tap()
 
         let unorganized = app.buttons["unorganizedCollection"]
         XCTAssertTrue(unorganized.waitForExistence(timeout: 3))
@@ -338,8 +669,32 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testSmartOrganizationCardKeepsActionsInsidePagerWithAccessibilityText() throws {
+        let app = makeApp()
+        useAccessibilityText(in: app)
+        app.launch()
+
+        app.buttons["Continue with Apple"].tap()
+        let foldersTab = app.tabBars.buttons["Folders"]
+        XCTAssertTrue(foldersTab.waitForExistence(timeout: 5))
+        foldersTab.tap()
+        app.buttons["unorganizedCollection"].tap()
+
+        let pager = app.descendants(matching: .any)["smartOrganizationPager"]
+        XCTAssertTrue(pager.waitForExistence(timeout: 8))
+        let skip = pager.buttons["Skip"].firstMatch
+        for _ in 0..<8 where !skip.isHittable {
+            app.swipeUp()
+        }
+        capture("Organization suggestions with accessibility text")
+        XCTAssertTrue(skip.isHittable)
+        XCTAssertGreaterThanOrEqual(pager.frame.maxY, skip.frame.maxY)
+        skip.tap()
+    }
+
+    @MainActor
     func testProfileShowsRepositoryDataAndSignsOut() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         app.buttons["Continue with Apple"].tap()
@@ -374,5 +729,22 @@ final class CentraliaUITests: XCTestCase {
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
         }
+    }
+
+    private func makeApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-testing"]
+        return app
+    }
+
+    private func useAccessibilityText(in app: XCUIApplication) {
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+    }
+
+    private func capture(_ name: String) {
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 }

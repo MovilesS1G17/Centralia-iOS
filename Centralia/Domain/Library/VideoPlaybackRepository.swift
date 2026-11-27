@@ -13,4 +13,11 @@ struct VideoPlayback: Equatable, Sendable {
 
 protocol VideoPlaybackRepository {
     func playback(for videoID: UUID) async throws -> VideoPlayback
+    func standardPlayback(for videoID: UUID) async throws -> VideoPlayback
+}
+
+extension VideoPlaybackRepository {
+    func standardPlayback(for videoID: UUID) async throws -> VideoPlayback {
+        try await playback(for: videoID)
+    }
 }

@@ -7,24 +7,51 @@ import Foundation
 ///
 /// `nonisolated`: plain data, used from the outbox actor and the main thread.
 nonisolated struct PendingAction: Codable, Equatable, Sendable {
+    struct FolderRename: Codable, Equatable, Sendable {
+        let changeID: UUID
+        let folderID: UUID
+        let userID: UUID
+        let name: String
+    }
+
     nonisolated enum Kind: Codable, Equatable, Sendable {
         case delete
         case restore(method: UndoMethod)
         case move(folderID: UUID?)
         case note(String?)
         case tags([String])
+        case renameFolder(FolderRename)
     }
 
-    let videoID: UUID
+    // Optional so a folder operation can share the outbox's existing wire shape.
+    let videoID: UUID?
     let queuedAt: Date
     let kind: Kind
 
+    init(videoID: UUID, queuedAt: Date, kind: Kind) {
+        self.videoID = videoID
+        self.queuedAt = queuedAt
+        self.kind = kind
+    }
+
+    init(folderID: UUID, userID: UUID, name: String, queuedAt: Date) {
+        videoID = nil
+        self.queuedAt = queuedAt
+        kind = .renameFolder(FolderRename(changeID: UUID(), folderID: folderID, userID: userID, name: name))
+    }
+
+    var folderRename: FolderRename? {
+        if case let .renameFolder(rename) = kind { return rename }
+        return nil
+    }
+
     /// The same change applied to a local copy of the library.
     func apply(to videos: [VideoItem]) -> [VideoItem] {
+        guard let videoID else { return videos }
         switch kind {
         case .delete:
             return videos.filter { $0.id != videoID }
-        case .restore:
+        case .restore, .renameFolder:
             return videos
         case let .move(folderID):
             return videos.map { video in
@@ -52,7 +79,10 @@ nonisolated struct PendingAction: Codable, Equatable, Sendable {
 
     /// True when `other` makes this one pointless (a newer edit of the same kind).
     func isReplaced(by other: PendingAction) -> Bool {
-        guard videoID == other.videoID else { return false }
+        if let previous = folderRename, let next = other.folderRename {
+            return previous.folderID == next.folderID && previous.userID == next.userID
+        }
+        guard let videoID, videoID == other.videoID else { return false }
         switch (kind, other.kind) {
         case (.move, .move), (.note, .note), (.tags, .tags):
             return true

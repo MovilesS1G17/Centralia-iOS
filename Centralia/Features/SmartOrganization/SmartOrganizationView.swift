@@ -2,30 +2,46 @@ import SwiftUI
 
 struct SmartOrganizationView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.offlineLibraryStatus) private var offlineStatus
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var viewModel: SmartOrganizationViewModel
     @State private var changingSuggestion: FolderSuggestion?
-    @State private var selectedVideo: VideoItem?
+    @State private var selectedVideo: VideoDetailRoute?
+    @State private var refreshRequest: RefreshRequest?
+
+    private struct RefreshRequest: Equatable {
+        let id = UUID()
+        let bypassCache: Bool
+    }
 
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
+    private let playbackRepository: (any VideoPlaybackRepository)?
     private let libraryChanged: () -> Void
 
     init(
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         suggestionPipeline: any VideoImportPipeline,
+        cache: FolderSuggestionCache,
+        accountID: UUID,
+        playbackRepository: (any VideoPlaybackRepository)? = nil,
         libraryChanged: @escaping () -> Void = {}
     ) {
         _viewModel = State(
             initialValue: SmartOrganizationViewModel(
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
-                suggestionPipeline: suggestionPipeline
+                suggestionPipeline: suggestionPipeline,
+                cache: cache,
+                accountID: accountID
             )
         )
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
+        self.playbackRepository = playbackRepository
         self.libraryChanged = libraryChanged
     }
 
@@ -33,7 +49,8 @@ struct SmartOrganizationView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
                 header
-                unorganizedCount
+                organizationTools
+                suggestionFeedback
                 content
             }
             .padding(.horizontal, CentraliaTheme.Spacing.medium)
@@ -46,8 +63,28 @@ struct SmartOrganizationView: View {
         .background(Color.centraliaCanvas.ignoresSafeArea())
         .foregroundStyle(Color.centraliaInk)
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            await viewModel.load()
+        .task(id: refreshRequest) {
+            if let request = refreshRequest {
+                guard !viewModel.isMutating else { return }
+                await viewModel.refresh(isOnline: { isOnline }, bypassCache: request.bypassCache)
+                if !Task.isCancelled, refreshRequest == request { refreshRequest = nil }
+            } else if viewModel.state == .idle {
+                await viewModel.load(isOnline: { isOnline })
+            }
+        }
+        .onChange(of: offlineStatus?.folderSnapshot) { _, folders in
+            if let folders, viewModel.state == .loading || viewModel.updateFolders(folders) {
+                refresh(bypassCache: false)
+            }
+        }
+        .onChange(of: viewModel.isMutating) { _, busy in
+            if !busy, let request = refreshRequest { refresh(bypassCache: request.bypassCache) }
+        }
+        .onChange(of: offlineStatus?.syncRevision) { _, _ in
+            if viewModel.state == .loaded, !viewModel.isMutating { refresh(bypassCache: false) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, viewModel.state == .loaded, !viewModel.isMutating { refresh(bypassCache: false) }
         }
         .sheet(item: $changingSuggestion) { suggestion in
             SuggestionFolderPickerSheet(
@@ -60,13 +97,15 @@ struct SmartOrganizationView: View {
                 }
             }
         }
-        .navigationDestination(item: $selectedVideo) { video in
+        .navigationDestination(item: $selectedVideo) { route in
             VideoDetailView(
-                video: video,
+                video: route.video,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
+                playbackRepository: playbackRepository,
+                startsPlaying: route.startsPlaying,
                 videoChanged: { updatedVideo in
-                    viewModel.apply(updatedVideo)
+                    if viewModel.apply(updatedVideo) { refresh(bypassCache: false) }
                     libraryChanged()
                 },
                 videoDeleted: { deletedVideo, _ in
@@ -80,6 +119,72 @@ struct SmartOrganizationView: View {
             Button("OK") { viewModel.dismissFailure() }
         } message: {
             Text(viewModel.failureMessage ?? "Please try again.")
+        }
+    }
+
+    private var isOnline: Bool { offlineStatus?.isOnline ?? true }
+
+    private func refresh(bypassCache: Bool = true) {
+        refreshRequest = RefreshRequest(bypassCache: bypassCache)
+    }
+
+    private var organizationTools: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: CentraliaTheme.Spacing.xSmall))
+            : AnyLayout(HStackLayout(spacing: CentraliaTheme.Spacing.small))
+
+        return layout {
+            unorganizedCount
+            if isOnline, viewModel.state == .loaded, viewModel.unorganizedCount > 0 {
+                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                Button("Refresh Suggestions", systemImage: "arrow.clockwise") { refresh() }
+                    .font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.leading)
+                    .frame(minHeight: 44)
+                    .buttonStyle(CentraliaPressStyle())
+                    .disabled(viewModel.isRefreshing || viewModel.isMutating)
+                    .accessibilityIdentifier("refreshFolderSuggestions")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var suggestionFeedback: some View {
+        if viewModel.state == .loaded {
+            let hasCached = !viewModel.cachedSuggestionIDs.isEmpty
+            let hasOfflineMisses = !viewModel.connectionNeeded.isEmpty && !viewModel.suggestions.isEmpty
+            let hasFailed = viewModel.refreshFailed || (!viewModel.failedLookups.isEmpty && !viewModel.suggestions.isEmpty)
+
+            if hasCached || hasOfflineMisses || hasFailed || viewModel.isRefreshing {
+                VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.xSmall) {
+                    if hasCached {
+                        Label(
+                            viewModel.cachedSuggestionIDs.count == viewModel.suggestions.count ? "Saved suggestions" : "Includes saved suggestions",
+                            systemImage: "clock.arrow.circlepath"
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityIdentifier("savedFolderSuggestions")
+                    }
+                    if hasOfflineMisses {
+                        let count = viewModel.connectionNeeded.count
+                        Text(count == 1 ? "1 short needs a connection for suggestions." : "\(count) shorts need a connection for suggestions.")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.centraliaSecondaryText)
+                    }
+                    if hasFailed {
+                        Text("Some suggestions couldn’t be updated. Try refreshing again.")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.centraliaSecondaryText)
+                    }
+                    if viewModel.isRefreshing {
+                        ProgressView("Refreshing suggestions…")
+                            .font(.subheadline)
+                    }
+                }
+                .padding(CentraliaTheme.Spacing.medium)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 16))
+            }
         }
     }
 
@@ -124,17 +229,16 @@ struct SmartOrganizationView: View {
                 Text(message)
             } actions: {
                 Button("Try Again") {
-                    Task { await viewModel.retry() }
+                    refresh(bypassCache: false)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
             }
             .frame(maxWidth: .infinity, minHeight: 440)
 
         case .loaded:
-            if viewModel.suggestions.isEmpty {
+            if viewModel.suggestions.isEmpty, !viewModel.isRefreshing {
                 completionState
-            } else {
+            } else if !viewModel.suggestions.isEmpty {
                 suggestionPager
                 pageIndicator
                 controlNotice
@@ -143,27 +247,33 @@ struct SmartOrganizationView: View {
     }
 
     private var suggestionPager: some View {
-        TabView(selection: suggestionSelection) {
-            ForEach(viewModel.suggestions) { suggestion in
-                SmartSuggestionCard(
-                    suggestion: suggestion,
-                    isMutating: viewModel.isMutating,
-                    openVideo: { selectedVideo = suggestion.video },
-                    changeFolder: { changingSuggestion = suggestion },
-                    accept: {
-                        Task {
-                            guard await viewModel.accept(suggestion) else { return }
-                            libraryChanged()
-                        }
-                    },
-                    skip: { viewModel.skip(suggestion) }
-                )
-                .padding(.horizontal, 2)
-                .tag(suggestion.id)
+        @Bindable var model = viewModel
+        return ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(viewModel.suggestions) { suggestion in
+                    SmartSuggestionCard(
+                        suggestion: suggestion,
+                        isMutating: viewModel.isMutating || viewModel.isRefreshing,
+                        openVideo: { selectedVideo = VideoDetailRoute(video: suggestion.video) },
+                        playVideo: { selectedVideo = VideoDetailRoute(video: suggestion.video, startsPlaying: true) },
+                        changeFolder: { changingSuggestion = suggestion },
+                        accept: {
+                            Task {
+                                guard await viewModel.accept(suggestion) else { return }
+                                libraryChanged()
+                            }
+                        },
+                        skip: { viewModel.skip(suggestion) }
+                    )
+                    .padding(.horizontal, 2)
+                    .containerRelativeFrame(.horizontal)
+                }
             }
+            .scrollTargetLayout()
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: 490)
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $model.selectedSuggestionID)
         .accessibilityIdentifier("smartOrganizationPager")
     }
 
@@ -196,7 +306,11 @@ struct SmartOrganizationView: View {
     }
 
     private var controlNotice: some View {
-        HStack(spacing: CentraliaTheme.Spacing.medium) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: CentraliaTheme.Spacing.small))
+            : AnyLayout(HStackLayout(spacing: CentraliaTheme.Spacing.medium))
+
+        return layout {
             Image(systemName: "sparkles")
                 .font(.title2)
                 .frame(width: 40, height: 40)
@@ -216,35 +330,42 @@ struct SmartOrganizationView: View {
     }
 
     private var completionState: some View {
-        ContentUnavailableView {
-            Label(
-                viewModel.unorganizedCount == 0 ? "Everything is organized" : "No suggestions left",
-                systemImage: viewModel.unorganizedCount == 0 ? "checkmark.circle" : "sparkles"
-            )
+        let title: LocalizedStringKey
+        let description: LocalizedStringKey
+        let icon: String
+
+        if viewModel.unorganizedCount == 0 {
+            title = "Everything is organized"
+            description = "Your Unorganized collection is empty."
+            icon = "checkmark.circle"
+        } else if !viewModel.connectionNeeded.isEmpty {
+            title = "No saved suggestions"
+            description = isOnline
+                ? "Refresh to get suggestions for your unorganized shorts."
+                : "Connect to the internet to get suggestions for your unorganized shorts."
+            icon = "wifi.slash"
+        } else if !viewModel.failedLookups.isEmpty {
+            title = "Suggestions couldn’t load"
+            description = "Refresh to try again."
+            icon = "exclamationmark.circle"
+        } else {
+            title = "No suggestions left"
+            description = viewModel.hasSkipped
+                ? "Skipped shorts are still safe in Unorganized."
+                : "There are no folder suggestions for these shorts."
+            icon = "sparkles"
+        }
+
+        return ContentUnavailableView {
+            Label(title, systemImage: icon)
         } description: {
-            Text(
-                viewModel.unorganizedCount == 0
-                    ? "Your Unorganized collection is empty."
-                    : "Skipped shorts are still safe in Unorganized."
-            )
+            Text(description)
         } actions: {
             Button("Back to Folders") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
                 .accessibilityIdentifier("smartOrganizationBackToFolders")
         }
         .frame(maxWidth: .infinity, minHeight: 440)
-    }
-
-    private var suggestionSelection: Binding<UUID> {
-        Binding(
-            get: {
-                viewModel.selectedSuggestionID
-                    ?? viewModel.suggestions.first?.id
-                    ?? UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
-            },
-            set: { viewModel.selectedSuggestionID = $0 }
-        )
     }
 
     private var failureBinding: Binding<Bool> {
@@ -258,14 +379,15 @@ struct SmartOrganizationView: View {
 }
 
 private struct SmartSuggestionCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let suggestion: FolderSuggestion
     let isMutating: Bool
     let openVideo: () -> Void
+    let playVideo: () -> Void
     let changeFolder: () -> Void
     let accept: () -> Void
     let skip: () -> Void
-
-    @State private var isPlaying = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -275,7 +397,7 @@ private struct SmartSuggestionCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(suggestion.video.displayTitle)
                         .font(.title2.weight(.bold))
-                        .lineLimit(2)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                         .multilineTextAlignment(.leading)
 
                     Text(suggestion.video.creator)
@@ -292,23 +414,26 @@ private struct SmartSuggestionCard: View {
                 .foregroundStyle(Color.centraliaSecondaryText)
 
             Button(action: changeFolder) {
-                HStack(spacing: CentraliaTheme.Spacing.medium) {
-                    Image(systemName: suggestion.folder.symbolName)
-                        .font(.title3.weight(.semibold))
-                        .frame(width: 28)
-                        .accessibilityHidden(true)
+                let layout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: CentraliaTheme.Spacing.small))
+                    : AnyLayout(HStackLayout(spacing: CentraliaTheme.Spacing.medium))
 
-                    Text(suggestion.folder.name)
+                layout {
+                    Label(suggestion.folder.name, systemImage: suggestion.folder.symbolName)
                         .font(.headline)
+                        .multilineTextAlignment(.leading)
 
-                    Spacer(minLength: 0)
+                    if !dynamicTypeSize.isAccessibilitySize {
+                        Spacer(minLength: 0)
+                    }
 
                     Text("Change")
                         .font(.headline)
                 }
                 .foregroundStyle(Color.centraliaInk)
                 .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                .frame(maxWidth: .infinity, minHeight: 58)
+                .padding(.vertical, CentraliaTheme.Spacing.small)
+                .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
                 .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 16))
             }
             .buttonStyle(CentraliaPressStyle())
@@ -316,9 +441,15 @@ private struct SmartSuggestionCard: View {
             .accessibilityLabel("Suggested folder \(suggestion.folder.name). Change folder")
             .accessibilityIdentifier("smartOrganizationChangeFolder")
 
-            HStack(spacing: 12) {
+            let actionsLayout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 12))
+                : AnyLayout(HStackLayout(spacing: 12))
+
+            actionsLayout {
                 Button("Accept", action: accept)
                     .font(.headline)
+                    .padding(.horizontal, CentraliaTheme.Spacing.small)
+                    .padding(.vertical, CentraliaTheme.Spacing.xSmall)
                     .foregroundStyle(Color.centraliaSurface)
                     .frame(maxWidth: .infinity, minHeight: 54)
                     .background(Color.centraliaInk, in: RoundedRectangle(cornerRadius: 16))
@@ -326,6 +457,8 @@ private struct SmartSuggestionCard: View {
 
                 Button("Skip", action: skip)
                     .font(.headline)
+                    .padding(.horizontal, CentraliaTheme.Spacing.small)
+                    .padding(.vertical, CentraliaTheme.Spacing.xSmall)
                     .foregroundStyle(Color.centraliaInk)
                     .frame(maxWidth: .infinity, minHeight: 54)
                     .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
@@ -353,17 +486,15 @@ private struct SmartSuggestionCard: View {
             thumbnailColor
                 .onTapGesture(perform: openVideo)
 
-            Button {
-                isPlaying.toggle()
-            } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+            Button(action: playVideo) {
+                Image(systemName: "play.fill")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
                     .frame(width: 64, height: 64)
                     .background(Color.centraliaInk.opacity(0.94), in: Circle())
             }
             .buttonStyle(CentraliaPressStyle())
-            .accessibilityLabel(isPlaying ? "Pause preview" : "Play preview")
+            .accessibilityLabel("Play \(suggestion.video.displayTitle)")
 
             Text(suggestion.video.platform.displayName)
                 .font(.subheadline.weight(.semibold))

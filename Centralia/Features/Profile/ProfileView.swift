@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 struct ProfileView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     private enum Sheet: String, Identifiable {
         case editProfile
         case changePassword
@@ -155,8 +157,7 @@ struct ProfileView: View {
                 Button("Try Again") {
                     Task { await viewModel.retry() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
             }
             .frame(maxWidth: .infinity, minHeight: 520)
 
@@ -173,7 +174,11 @@ struct ProfileView: View {
     }
 
     private func identityCard(_ profile: UserProfile) -> some View {
-        HStack(spacing: CentraliaTheme.Spacing.medium) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: CentraliaTheme.Spacing.medium))
+            : AnyLayout(HStackLayout(spacing: CentraliaTheme.Spacing.medium))
+
+        return layout {
             Text(profile.initials)
                 .font(.title2.weight(.bold))
                 .foregroundStyle(Color.centraliaSurface)
@@ -184,7 +189,6 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(profile.displayName)
                     .font(CentraliaTheme.Typography.sectionTitle)
-                    .lineLimit(2)
 
                 Text(profile.email)
                     .font(.subheadline)
@@ -198,7 +202,9 @@ struct ProfileView: View {
                     .background(Color.centraliaSoftSurface, in: Capsule())
             }
 
-            Spacer(minLength: 0)
+            if !dynamicTypeSize.isAccessibilitySize {
+                Spacer(minLength: 0)
+            }
         }
         .padding(CentraliaTheme.Spacing.medium)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -428,25 +434,25 @@ private struct EditProfileSheet: View {
         NavigationStack {
             Form {
                 Section("Personal information") {
-                    TextField("Name", text: $displayName)
+                    TextField(centralia: "Name", text: $displayName)
                         .textContentType(.name)
                     if let nameError {
-                        Text(nameError).foregroundStyle(.red)
+                        Text(nameError).foregroundStyle(Color.centraliaError)
                     }
 
-                    TextField("Email", text: $email)
+                    TextField(centralia: "Email", text: $email)
                         .textContentType(.emailAddress)
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     if let emailError {
-                        Text(emailError).foregroundStyle(.red)
+                        Text(emailError).foregroundStyle(Color.centraliaError)
                     }
                 }
 
                 Section {
                     Text("Changing your email may require verification when the live API is connected.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.centraliaSecondaryText)
                 }
             }
             .navigationTitle("Edit Profile")
@@ -512,24 +518,24 @@ private struct ChangePasswordSheet: View {
         NavigationStack {
             Form {
                 Section("Current password") {
-                    SecureField("Current password", text: $currentPassword)
+                    SecureField(centralia: "Current password", text: $currentPassword)
                         .textContentType(.password)
                     if let currentPasswordError {
-                        Text(currentPasswordError).foregroundStyle(.red)
+                        Text(currentPasswordError).foregroundStyle(Color.centraliaError)
                     }
                 }
 
                 Section("New password") {
-                    SecureField("New password", text: $newPassword)
+                    SecureField(centralia: "New password", text: $newPassword)
                         .textContentType(.newPassword)
                     if let newPasswordError {
-                        Text(newPasswordError).foregroundStyle(.red)
+                        Text(newPasswordError).foregroundStyle(Color.centraliaError)
                     }
 
-                    SecureField("Confirm new password", text: $confirmation)
+                    SecureField(centralia: "Confirm new password", text: $confirmation)
                         .textContentType(.newPassword)
                     if let confirmationError {
-                        Text(confirmationError).foregroundStyle(.red)
+                        Text(confirmationError).foregroundStyle(Color.centraliaError)
                     }
                 }
             }
@@ -648,7 +654,7 @@ private struct NotificationPreferencesSheet: View {
                 Text(title)
                 Text(detail)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.centraliaSecondaryText)
             }
         }
         .disabled(viewModel.isSavingPreferences)
@@ -683,7 +689,7 @@ private struct ExportLibrarySheet: View {
                 Section("Format") {
                     LabeledContent("File type", value: "JSON")
                     Text("The export is human-readable and can also be imported by another service.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.centraliaSecondaryText)
                 }
 
                 Section {

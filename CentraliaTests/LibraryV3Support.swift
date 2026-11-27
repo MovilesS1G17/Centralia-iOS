@@ -218,6 +218,7 @@ final class V3SimulatedLibrary: VideoItemRepository, FolderRepository, VideoImpo
 final class ScriptedPlaybackRepository: VideoPlaybackRepository {
     var result: Result<VideoPlayback, Error>
     private(set) var requestedIDs: [UUID] = []
+    private(set) var standardRequestedIDs: [UUID] = []
 
     init(_ result: Result<VideoPlayback, Error>) {
         self.result = result
@@ -225,6 +226,11 @@ final class ScriptedPlaybackRepository: VideoPlaybackRepository {
 
     func playback(for videoID: UUID) async throws -> VideoPlayback {
         requestedIDs.append(videoID)
+        return try result.get()
+    }
+
+    func standardPlayback(for videoID: UUID) async throws -> VideoPlayback {
+        standardRequestedIDs.append(videoID)
         return try result.get()
     }
 }

@@ -16,18 +16,24 @@ import Foundation
 actor SyncManager {
     private let queue: PendingActionQueue
     private let send: @Sendable (PendingAction) async throws -> Void
+    private let canSend: @MainActor @Sendable (PendingAction) -> Bool
     private let onSynced: @MainActor @Sendable () -> Void
+    private let onRenameSettled: @MainActor @Sendable (PendingAction.FolderRename, FolderRenameNotice?) async -> Void
     private var isSyncing = false
     private var syncAgain = false
 
     init(
         queue: PendingActionQueue,
+        canSend: @escaping @MainActor @Sendable (PendingAction) -> Bool = { _ in true },
         send: @escaping @Sendable (PendingAction) async throws -> Void,
+        onRenameSettled: @escaping @MainActor @Sendable (PendingAction.FolderRename, FolderRenameNotice?) async -> Void = { _, _ in },
         onSynced: @escaping @MainActor @Sendable () -> Void
     ) {
         self.queue = queue
+        self.canSend = canSend
         self.send = send
         self.onSynced = onSynced
+        self.onRenameSettled = onRenameSettled
     }
 
     nonisolated func requestSync() {
@@ -46,18 +52,33 @@ actor SyncManager {
         var synced = 0
         repeat {
             syncAgain = false
+            var syncedVideos = false
             for action in await queue.all() {
+                guard await canSend(action), await queue.contains(action) else { continue }
+                let notice: FolderRenameNotice?
                 do {
                     try await send(action)
-                    await queue.remove(action)
-                    synced += 1
+                    notice = nil
                 } catch {
                     guard Self.isPermanentFailure(error) else { break }
-                    await queue.remove(action)
+                    notice = FolderRenameNotice(error: error)
+                }
+
+                do {
+                    if try await queue.removeProcessed(action) {
+                        if notice == nil {
+                            synced += 1
+                            if action.folderRename == nil { syncedVideos = true }
+                        }
+                        if let rename = action.folderRename { await onRenameSettled(rename, notice) }
+                    }
+                } catch {
+                    // A folder rename can replay safely if we couldn't commit the removal.
+                    break
                 }
             }
+            if syncedVideos { await onSynced() }
         } while syncAgain
-        if synced > 0 { await onSynced() }
         return synced
     }
 

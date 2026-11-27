@@ -8,32 +8,40 @@ import Foundation
 /// | Library and folder lists | Network falling back to cache: memory, then the JSON file on disk |
 /// | Delete, undo, move, note, tags | Offline: applied to the local copy at once and queued in the outbox; synced when the network is back |
 /// | Playback | Cache (10 min) falling back to network; offline it needs a connection |
-/// | Saving a short, creating/renaming/deleting folders | Network only, with a clear "you're offline" message |
+/// | Rename a folder | Confirm online or project the account's durable pending rename |
+/// | Saving a short, creating/deleting folders | Network only, with a clear "you're offline" message |
 ///
 /// The disk copy is written in a separate `Task` on the store's actor, so the
 /// screen gets its answer without waiting for the file. Mirrors
 /// `OfflineFirstLibraryRepository` on Android.
 final class OfflineFirstLibraryRepository: VideoItemRepository, FolderRepository, VideoPlaybackRepository {
-    private let videosAPI: APIVideoItemRepository
-    private let foldersAPI: APIFolderRepository
-    private let playbackAPI: APIVideoPlaybackRepository
+    private let videosAPI: any VideoItemRepository
+    private let foldersAPI: any FolderRepository
+    private let playbackAPI: any VideoPlaybackRepository
     private let store: LocalLibraryStore
     private let queue: PendingActionQueue
     private let memory: LibraryMemoryCache
     private let isOnline: () -> Bool
     private let networkType: () -> NetworkType
     private let now: () -> Date
+    private let currentAccountID: () -> UUID?
+    private let onFolderChange: ([LibraryFolder], UUID) -> Void
+    private let onRenameQueued: (PendingAction.FolderRename) -> Void
+    private var folderRevision = 0
 
     init(
-        videosAPI: APIVideoItemRepository,
-        foldersAPI: APIFolderRepository,
-        playbackAPI: APIVideoPlaybackRepository,
+        videosAPI: any VideoItemRepository,
+        foldersAPI: any FolderRepository,
+        playbackAPI: any VideoPlaybackRepository,
         store: LocalLibraryStore,
         queue: PendingActionQueue,
         memory: LibraryMemoryCache,
         isOnline: @escaping () -> Bool,
         networkType: @escaping () -> NetworkType,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        currentAccountID: @escaping () -> UUID? = { nil },
+        onFolderChange: @escaping ([LibraryFolder], UUID) -> Void = { _, _ in },
+        onRenameQueued: @escaping (PendingAction.FolderRename) -> Void = { _ in }
     ) {
         self.videosAPI = videosAPI
         self.foldersAPI = foldersAPI
@@ -44,6 +52,9 @@ final class OfflineFirstLibraryRepository: VideoItemRepository, FolderRepository
         self.isOnline = isOnline
         self.networkType = networkType
         self.now = now
+        self.currentAccountID = currentAccountID
+        self.onFolderChange = onFolderChange
+        self.onRenameQueued = onRenameQueued
     }
 
     // MARK: Reads
@@ -73,25 +84,24 @@ final class OfflineFirstLibraryRepository: VideoItemRepository, FolderRepository
 
     func folders() async throws -> [LibraryFolder] {
         if isOnline() {
+            let revision = folderRevision
             do {
                 let fresh = try await foldersAPI.folders()
-                memory.folders = fresh
-                let savedAt = now()
-                Task { await store.update { snapshot in
-                    var copy = snapshot
-                    copy.folders = fresh
-                    copy.savedAt = savedAt
-                    return copy
-                } }
-                return fresh
+                if revision == folderRevision {
+                    memory.folders = fresh
+                    let savedAt = now()
+                    await store.update { snapshot in
+                        var copy = snapshot
+                        copy.folders = fresh
+                        copy.savedAt = savedAt
+                        return copy
+                    }
+                }
             } catch where APIClientError.isOffline(error) {
                 // Fall through to the saved copy.
             }
         }
-        if let cached = memory.folders { return cached }
-        let saved = await store.read().folders
-        memory.folders = saved
-        return saved
+        return await projectedFolders()
     }
 
     func playback(for videoID: UUID) async throws -> VideoPlayback {
@@ -101,6 +111,10 @@ final class OfflineFirstLibraryRepository: VideoItemRepository, FolderRepository
         let fresh = try await networkOnly("Playing a short") { try await playbackAPI.playback(for: videoID) }
         memory.store(fresh, for: videoID, network: network)
         return fresh
+    }
+
+    func standardPlayback(for videoID: UUID) async throws -> VideoPlayback {
+        try await networkOnly("Playing a short") { try await playbackAPI.standardPlayback(for: videoID) }
     }
 
     func recordSourceOpened(id: UUID) async {
@@ -116,17 +130,104 @@ final class OfflineFirstLibraryRepository: VideoItemRepository, FolderRepository
     }
 
     func createFolder(named name: String, symbolName: String) async throws -> LibraryFolder {
-        try await networkOnly("Creating a folder") {
+        let accountID = currentAccountID()
+        let folder = try await networkOnly("Creating a folder") {
             try await foldersAPI.createFolder(named: name, symbolName: symbolName)
         }
+        try requireCurrentAccount(accountID)
+        try await cacheFolder(folder.id, as: folder, durable: false)
+        try requireCurrentAccount(accountID)
+        if let accountID { await publishFolders(for: accountID) }
+        return folder
     }
 
     func renameFolder(id: UUID, to name: String) async throws -> LibraryFolder {
-        try await networkOnly("Renaming a folder") { try await foldersAPI.renameFolder(id: id, to: name) }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw FolderRepositoryError.emptyName }
+
+        let accountID = currentAccountID()
+        let pendingForFolder = await queue.all().contains {
+            $0.folderRename?.folderID == id && $0.folderRename?.userID == accountID
+        }
+        try requireCurrentAccount(accountID)
+        if isOnline(), !pendingForFolder {
+            do {
+                let folder = try await foldersAPI.renameFolder(id: id, to: trimmed)
+                try requireCurrentAccount(accountID)
+                try await cacheFolder(id, as: folder, durable: false)
+                if let accountID { await publishFolders(for: accountID) }
+                return folder
+            } catch where APIClientError.isOffline(error) {
+                // The same desired name can be replayed even if the response was lost.
+            }
+        }
+
+        guard let accountID else { throw OfflineError.needsConnection("Renaming a folder") }
+        let folders = await projectedFolders()
+        try requireCurrentAccount(accountID)
+        guard var folder = folders.first(where: { $0.id == id }) else { throw FolderRepositoryError.folderNotFound }
+        guard let confirmed = memory.folders?.first(where: { $0.id == id }) else { throw FolderRepositoryError.folderNotFound }
+        let pendingName = String(trimmed.unicodeScalars.prefix(120))
+        guard !folders.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(pendingName) == .orderedSame }) else {
+            throw FolderRepositoryError.duplicateName
+        }
+        let action = PendingAction(folderID: id, userID: accountID, name: pendingName, queuedAt: now())
+        do {
+            try await store.updatePersisted { snapshot in
+                var snapshot = snapshot
+                if !snapshot.folders.contains(where: { $0.id == id }) { snapshot.folders.append(confirmed) }
+                return snapshot
+            }
+            try requireCurrentAccount(accountID)
+            try await queue.enqueueFolderRename(action)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw OfflineError.renameNotStored
+        }
+
+        await publishFolders(for: accountID)
+        try requireCurrentAccount(accountID)
+        if let rename = action.folderRename { onRenameQueued(rename) }
+        folder.name = pendingName
+        return folder
     }
 
     func deleteFolder(id: UUID) async throws {
+        let accountID = currentAccountID()
         try await networkOnly("Deleting a folder") { try await foldersAPI.deleteFolder(id: id) }
+        try requireCurrentAccount(accountID)
+        try await cacheFolder(id, as: nil, durable: false)
+        if let accountID {
+            for action in await queue.all() where action.folderRename?.folderID == id && action.folderRename?.userID == accountID {
+                _ = try? await queue.removeProcessed(action)
+            }
+            await publishFolders(for: accountID)
+        }
+    }
+
+    func replayFolderRename(_ rename: PendingAction.FolderRename, queuedAt: Date) async throws {
+        try requireCurrentAccount(rename.userID)
+        do {
+            let folder = try await foldersAPI.renameFolder(id: rename.folderID, to: rename.name, queuedAt: queuedAt)
+            try requireCurrentAccount(rename.userID)
+            try await cacheFolder(rename.folderID, as: folder, durable: true)
+        } catch where SyncManager.isPermanentFailure(error) {
+            try requireCurrentAccount(rename.userID)
+            if FolderRenameNotice(error: error) == .folderRemoved {
+                try await cacheFolder(rename.folderID, as: nil, durable: true)
+            } else if let fresh = try? await foldersAPI.folders() {
+                try requireCurrentAccount(rename.userID)
+                try await cacheFolder(rename.folderID, as: fresh.first { $0.id == rename.folderID }, durable: true)
+            }
+            throw error
+        }
+    }
+
+    func publishFolders(for accountID: UUID) async {
+        let folders = await projectedFolders()
+        guard accountID == currentAccountID() else { return }
+        onFolderChange(folders, accountID)
     }
 
     // MARK: Queued when offline
@@ -206,5 +307,53 @@ final class OfflineFirstLibraryRepository: VideoItemRepository, FolderRepository
     /// Changes still in the outbox are shown even when the list came from the server.
     private func withPendingChanges(_ videos: [VideoItem]) async -> [VideoItem] {
         await queue.all().reduce(videos) { list, action in action.apply(to: list) }
+    }
+
+    private func projectedFolders() async -> [LibraryFolder] {
+        if memory.folders == nil {
+            let disk = await store.read().folders
+            if memory.folders == nil { memory.folders = disk }
+        }
+        let actions = await queue.all()
+        let accountID = currentAccountID()
+        let base = memory.folders ?? []
+        let names = actions.compactMap(\.folderRename).filter { $0.userID == accountID }
+        return base.map { folder in
+            var projected = folder
+            if let rename = names.last(where: { $0.folderID == folder.id }) {
+                projected.name = rename.name
+            }
+            return projected
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func cacheFolder(_ id: UUID, as folder: LibraryFolder?, durable: Bool) async throws {
+        folderRevision += 1
+        let revision = folderRevision
+        let unassignVideos: @Sendable ([VideoItem]) -> [VideoItem] = { videos in
+            videos.map { video in
+                guard video.folderID == id else { return video }
+                var video = video
+                video.folderID = nil
+                return video
+            }
+        }
+        let replace: @Sendable (LocalLibraryStore.Snapshot) -> LocalLibraryStore.Snapshot = { snapshot in
+            var copy = snapshot
+            copy.folders.removeAll { $0.id == id }
+            if let folder {
+                copy.folders.append(folder)
+            } else {
+                copy.videos = unassignVideos(copy.videos)
+            }
+            return copy
+        }
+        let updated = if durable { try await store.updatePersisted(replace) } else { await store.update(replace) }
+        if revision == folderRevision { memory.folders = updated.folders }
+        if folder == nil, let videos = memory.videos { memory.videos = unassignVideos(videos) }
+    }
+
+    private func requireCurrentAccount(_ accountID: UUID?) throws {
+        guard currentAccountID() == accountID else { throw CancellationError() }
     }
 }

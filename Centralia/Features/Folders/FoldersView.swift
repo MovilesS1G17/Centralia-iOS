@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct FoldersView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.offlineLibraryStatus) private var offlineStatus
+
     private enum Route: Hashable {
         case folder(LibraryFolder)
         case smartOrganization
@@ -14,6 +17,8 @@ struct FoldersView: View {
     private let videoRepository: any VideoItemRepository
     private let folderRepository: any FolderRepository
     private let suggestionPipeline: any VideoImportPipeline
+    private let suggestionCache: FolderSuggestionCache
+    private let accountID: UUID
     private let analytics: any AnalyticsTracking
     private let playbackRepository: (any VideoPlaybackRepository)?
     private let libraryChanged: () -> Void
@@ -22,6 +27,8 @@ struct FoldersView: View {
         videoRepository: any VideoItemRepository,
         folderRepository: any FolderRepository,
         suggestionPipeline: any VideoImportPipeline,
+        suggestionCache: FolderSuggestionCache,
+        accountID: UUID,
         playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         libraryChanged: @escaping () -> Void = {}
@@ -38,6 +45,8 @@ struct FoldersView: View {
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
         self.suggestionPipeline = suggestionPipeline
+        self.suggestionCache = suggestionCache
+        self.accountID = accountID
         self.libraryChanged = libraryChanged
     }
 
@@ -79,6 +88,9 @@ struct FoldersView: View {
                         videoRepository: videoRepository,
                         folderRepository: folderRepository,
                         suggestionPipeline: suggestionPipeline,
+                        cache: suggestionCache,
+                        accountID: accountID,
+                        playbackRepository: playbackRepository,
                         libraryChanged: {
                             Task { await viewModel.applyFolderChange() }
                             libraryChanged()
@@ -86,9 +98,13 @@ struct FoldersView: View {
                     )
                 }
             }
-            .task {
+            .task(id: offlineStatus?.syncRevision) {
                 viewModel.trackScreenViewed()
-                await viewModel.load()
+                if let revision = offlineStatus?.syncRevision, revision > 0 { await viewModel.retry() }
+                else { await viewModel.load() }
+            }
+            .onChange(of: offlineStatus?.folderSnapshot) { _, folders in
+                if let folders { viewModel.applyFolderSnapshot(folders) }
             }
             .sheet(isPresented: $showsNewFolder) {
                 NewFolderSheet(viewModel: viewModel)
@@ -97,19 +113,23 @@ struct FoldersView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading))
+            : AnyLayout(HStackLayout())
+
+        return layout {
             Text("Folders")
                 .font(CentraliaTheme.Typography.display)
                 .accessibilityAddTraits(.isHeader)
 
-            Spacer()
+            if !dynamicTypeSize.isAccessibilitySize {
+                Spacer(minLength: 0)
+            }
 
             Button("New Folder") {
                 showsNewFolder = true
             }
-            .font(.headline)
-            .frame(minHeight: 44)
-            .buttonStyle(CentraliaPressStyle())
+            .buttonStyle(CentraliaProminentButtonStyle())
             .accessibilityIdentifier("newFolderButton")
         }
     }
@@ -120,7 +140,7 @@ struct FoldersView: View {
                 .font(.title3)
                 .accessibilityHidden(true)
 
-            TextField("Search folders", text: $viewModel.query)
+            TextField(centralia: "Search folders", text: $viewModel.query)
                 .font(.body)
                 .focused($searchIsFocused)
                 .submitLabel(.done)
@@ -167,8 +187,7 @@ struct FoldersView: View {
                 Button("Try Again") {
                     Task { await viewModel.retry() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
             }
             .frame(maxWidth: .infinity, minHeight: 320)
 
@@ -185,8 +204,7 @@ struct FoldersView: View {
                         Text("Use folders to keep your saved shorts together.")
                     } actions: {
                         Button("New Folder") { showsNewFolder = true }
-                            .buttonStyle(.borderedProminent)
-                            .tint(Color.centraliaInk)
+                            .buttonStyle(CentraliaProminentButtonStyle())
                     }
                     .frame(maxWidth: .infinity, minHeight: 240)
                 } else {
@@ -229,7 +247,7 @@ struct FoldersView: View {
             .background(Color.centraliaInk, in: RoundedRectangle(cornerRadius: 24))
         }
         .buttonStyle(CentraliaPressStyle())
-        .accessibilityLabel("Unorganized, (unorganizedDescription)")
+        .accessibilityLabel("Unorganized, \(unorganizedDescription)")
         .accessibilityHint("Opens Smart Organization")
         .accessibilityIdentifier("unorganizedCollection")
     }
@@ -241,16 +259,17 @@ struct FoldersView: View {
 
     private var folderGrid: some View {
         LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: CentraliaTheme.Spacing.medium),
-                GridItem(.flexible(), spacing: CentraliaTheme.Spacing.medium)
-            ],
+            columns: Array(
+                repeating: GridItem(.flexible(), spacing: CentraliaTheme.Spacing.medium),
+                count: dynamicTypeSize.isAccessibilitySize ? 1 : 2
+            ),
             spacing: CentraliaTheme.Spacing.medium
         ) {
             ForEach(viewModel.filteredFolders) { folder in
                 FolderGridCard(
                     folder: folder,
-                    itemCount: viewModel.itemCount(in: folder)
+                    itemCount: viewModel.itemCount(in: folder),
+                    status: folderStatus(for: folder.id)
                 ) {
                     path.append(.folder(folder))
                 }
@@ -258,11 +277,18 @@ struct FoldersView: View {
         }
         .accessibilityIdentifier("folderGrid")
     }
+
+    private func folderStatus(for id: UUID) -> String? {
+        if offlineStatus?.pendingFolderIDs.contains(id) == true { return "Pending sync" }
+        if offlineStatus?.folderRenameNotices[id] != nil { return "Rename needs attention" }
+        return nil
+    }
 }
 
 private struct FolderGridCard: View {
     let folder: LibraryFolder
     let itemCount: Int
+    let status: String?
     let action: () -> Void
 
     var body: some View {
@@ -277,12 +303,14 @@ private struct FolderGridCard: View {
 
                 Text(folder.name)
                     .font(.title3.weight(.bold))
-                    .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                Text("\(itemCount) \(itemCount == 1 ? "short" : "shorts")")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.centraliaSecondaryText)
+                VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.xSmall) {
+                    Text("\(itemCount) \(itemCount == 1 ? "short" : "shorts")")
+                        .font(.subheadline)
+                    if let status { Text(status).font(.caption.weight(.semibold)) }
+                }
+                .foregroundStyle(Color.centraliaSecondaryText)
             }
             .foregroundStyle(Color.centraliaInk)
             .padding(CentraliaTheme.Spacing.medium)
@@ -295,6 +323,7 @@ private struct FolderGridCard: View {
         }
         .buttonStyle(CentraliaPressStyle())
         .accessibilityLabel("\(folder.name), \(itemCount) \(itemCount == 1 ? "short" : "shorts")")
+        .accessibilityValue(status ?? "")
     }
 }
 
@@ -313,7 +342,7 @@ private struct NewFolderSheet: View {
                         .font(.body)
                         .foregroundStyle(Color.centraliaSecondaryText)
 
-                    TextField("Folder name", text: $folderName)
+                    TextField(centralia: "Folder name", text: $folderName)
                         .font(.body)
                         .focused($folderNameIsFocused)
                         .submitLabel(.done)
@@ -340,7 +369,7 @@ private struct NewFolderSheet: View {
                     if let message = viewModel.failureMessage {
                         Text(message)
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color.centraliaError)
                             .accessibilityLabel("Error: \(message)")
                     }
                 }

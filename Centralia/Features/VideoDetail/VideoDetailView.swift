@@ -1,10 +1,17 @@
 import SwiftUI
 
+struct VideoDetailRoute: Hashable {
+    let video: VideoItem
+    var startsPlaying = false
+}
+
 struct VideoDetailView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var viewModel: VideoDetailViewModel
-    @State private var isPlaying = false
+    @State private var startsPlaying: Bool
     @State private var showsTagEditor = false
     @State private var showsFolderPicker = false
     @State private var showsNoteEditor = false
@@ -23,6 +30,7 @@ struct VideoDetailView: View {
         folderRepository: any FolderRepository,
         playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
+        startsPlaying: Bool = false,
         videoChanged: @escaping (VideoItem) -> Void = { _ in },
         videoDeleted: @escaping (VideoItem, VideoDeletion) -> Void = { _, _ in }
     ) {
@@ -35,6 +43,7 @@ struct VideoDetailView: View {
                 analytics: analytics
             )
         )
+        _startsPlaying = State(initialValue: startsPlaying)
         self.videoRepository = videoRepository
         self.videoChanged = videoChanged
         self.videoDeleted = videoDeleted
@@ -45,15 +54,23 @@ struct VideoDetailView: View {
             VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
                 loadFailureBanner
                 preview
-                // Context-aware playback: on mobile data the backend picks data saver.
-                if let notice = viewModel.dataSaverNotice {
-                    Text(notice)
-                        .font(.caption)
-                        .foregroundStyle(Color.centraliaSecondaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 8))
+                if viewModel.canUseStandardPlayer {
+                    VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.xSmall) {
+                        if let notice = viewModel.dataSaverNotice {
+                            Text(notice)
+                                .font(.caption)
+                                .foregroundStyle(Color.centraliaSecondaryText)
+                        }
+                        Button("Use Standard Player (more data)") {
+                            Task { await viewModel.startPlayback(useStandardPlayer: true) }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 8))
                 }
                 metadata
                 organization
@@ -100,6 +117,11 @@ struct VideoDetailView: View {
         .task {
             viewModel.trackScreenViewed()
             await viewModel.load()
+        }
+        .task {
+            guard startsPlaying else { return }
+            startsPlaying = false
+            await viewModel.startPlayback()
         }
         .sheet(isPresented: $showsTagEditor) {
             VideoTagEditorSheet(viewModel: viewModel) {
@@ -209,7 +231,7 @@ struct VideoDetailView: View {
     private var playbackContent: some View {
         switch viewModel.playbackState {
         case .idle:
-            playButton
+            if viewModel.supportsPlayback { playButton }
 
         case .loading:
             ProgressView("Loading video…")
@@ -248,8 +270,10 @@ struct VideoDetailView: View {
                 Button("Try Again") {
                     Task { await viewModel.startPlayback() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
+                Button(viewModel.openActionTitle, action: openSourceVideo)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(minHeight: 44)
             }
             .padding()
             .background(Color.centraliaSurface.opacity(0.96), in: RoundedRectangle(cornerRadius: 16))
@@ -259,22 +283,16 @@ struct VideoDetailView: View {
 
     private var playButton: some View {
         Button {
-            if viewModel.supportsPlayback {
-                Task { await viewModel.startPlayback() }
-            } else {
-                isPlaying.toggle()
-            }
+            Task { await viewModel.startPlayback() }
         } label: {
-            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+            Image(systemName: "play.fill")
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 76, height: 76)
                 .background(Color.centraliaInk.opacity(0.95), in: Circle())
         }
         .buttonStyle(CentraliaPressStyle())
-        .accessibilityLabel(
-            isPlaying ? "Pause preview" : (viewModel.supportsPlayback ? "Play video" : "Play preview")
-        )
+        .accessibilityLabel("Play video")
     }
 
     private var metadata: some View {
@@ -376,20 +394,28 @@ struct VideoDetailView: View {
             .buttonStyle(CentraliaPressStyle())
             .accessibilityIdentifier("videoDetailOpenSource")
 
-            HStack(spacing: CentraliaTheme.Spacing.small) {
+            let actionLayout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: CentraliaTheme.Spacing.small))
+                : AnyLayout(HStackLayout(spacing: CentraliaTheme.Spacing.small))
+
+            actionLayout {
                 Button("Edit Tags") {
                     showsTagEditor = true
                 }
                 .accessibilityIdentifier("videoDetailEditTags")
 
-                Spacer(minLength: 0)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Spacer(minLength: 0)
+                }
 
                 Button(viewModel.folderActionTitle) {
                     showsFolderPicker = true
                 }
                 .accessibilityIdentifier("videoDetailFolderAction")
 
-                Spacer(minLength: 0)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Spacer(minLength: 0)
+                }
 
                 Button("Delete", role: .destructive) {
                     showsDeleteConfirmation = true
@@ -502,7 +528,7 @@ private struct VideoTagEditorSheet: View {
 
                 Section("Add a tag") {
                     HStack {
-                        TextField("New tag", text: $newTag)
+                        TextField(centralia: "New tag", text: $newTag)
                             .focused($newTagIsFocused)
                             .textInputAutocapitalization(.never)
                             .submitLabel(.done)
@@ -607,25 +633,27 @@ private struct VideoNoteEditorSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
-                Text("Personal note")
-                    .font(.headline)
+            ScrollView {
+                VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
+                    Text("Personal note")
+                        .font(.headline)
 
-                TextEditor(text: $note)
-                    .focused($noteIsFocused)
-                    .scrollContentBackground(.hidden)
-                    .padding(10)
-                    .frame(minHeight: 180)
-                    .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.centraliaDivider, lineWidth: 1)
-                    }
-                    .accessibilityIdentifier("videoDetailNoteField")
-
-                Spacer()
+                    TextEditor(text: $note)
+                        .focused($noteIsFocused)
+                        .scrollContentBackground(.hidden)
+                        .padding(10)
+                        .frame(minHeight: 180)
+                        .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.centraliaDivider, lineWidth: 1)
+                        }
+                        .accessibilityLabel("Personal note")
+                        .accessibilityIdentifier("videoDetailNoteField")
+                }
+                .padding(CentraliaTheme.Spacing.medium)
             }
-            .padding(CentraliaTheme.Spacing.medium)
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.centraliaCanvas.ignoresSafeArea())
             .navigationTitle(viewModel.video.note == nil ? "Add Note" : "Edit Note")
             .navigationBarTitleDisplayMode(.inline)
@@ -689,7 +717,7 @@ private struct VideoReportSheet: View {
                 }
 
                 Section("Details (optional)") {
-                    TextField("Tell us what happened", text: $details, axis: .vertical)
+                    TextField(centralia: "Tell us what happened", text: $details, axis: .vertical)
                         .lineLimit(3...6)
                 }
             }
