@@ -6,6 +6,7 @@ struct SaveImportStatusCard: View {
     let metadata: ImportedVideoMetadata?
     let stage: VideoImportStage?
     let errorMessage: String?
+    var errorTitle: String = LinkProblem.defaultTitle
 
     var body: some View {
         let layout = dynamicTypeSize.isAccessibilitySize
@@ -17,7 +18,7 @@ struct SaveImportStatusCard: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 if let errorMessage {
-                    Label("Link not supported", systemImage: "exclamationmark.triangle.fill")
+                    Label(errorTitle, systemImage: "exclamationmark.triangle.fill")
                         .font(.headline)
                         .foregroundStyle(Color.centraliaError)
                     Text(errorMessage)
@@ -120,7 +121,11 @@ struct SaveTagChip: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // One line: a long tag ends in "…" and the remove button stays on screen.
             Text(tag)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(-1)
             Button("Remove \(tag)", systemImage: "xmark") {
                 remove()
             }
@@ -237,19 +242,27 @@ struct SaveTagEditorSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Add your own tag") {
+                Section {
                     TextField(centralia: "Tag", text: $tag)
                         .focused($tagIsFocused)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .submitLabel(.done)
                         .onSubmit(addManualTag)
+                        .onChange(of: tag) { _, newValue in
+                            let limited = TagRules.limitInput(newValue)
+                            if limited != newValue { tag = limited }
+                        }
                         .accessibilityIdentifier("newTagField")
 
                     Button("Add Tag", systemImage: "plus") {
                         addManualTag()
                     }
-                    .disabled(tag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!TagRules.isValid(tag))
+                } header: {
+                    Text("Add your own tag")
+                } footer: {
+                    Text("Up to \(TagRules.maxLength) characters · \(TagRules.counter(tag))")
                 }
 
                 if !viewModel.availableTagSuggestions.isEmpty {
@@ -273,7 +286,9 @@ struct SaveTagEditorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
+                    // TA feedback: "Done" keeps what was just typed instead of dropping it.
                     Button("Done") {
+                        addManualTag()
                         dismiss()
                     }
                 }
@@ -286,9 +301,8 @@ struct SaveTagEditorSheet: View {
     }
 
     private func addManualTag() {
-        let trimmedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTag.isEmpty else { return }
-        viewModel.addTag(trimmedTag)
+        guard TagRules.isValid(tag) else { return }
+        viewModel.addTag(TagRules.clean(tag))
         tag = ""
     }
 }

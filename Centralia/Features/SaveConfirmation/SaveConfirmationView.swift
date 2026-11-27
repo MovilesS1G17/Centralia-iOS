@@ -158,7 +158,11 @@ struct SaveConfirmationView: View {
                 if !viewModel.video.tags.isEmpty {
                     FlowLayout(spacing: CentraliaTheme.Spacing.small) {
                         ForEach(viewModel.video.tags, id: \.self) { tag in
+                            // Not fixedSize: that let a long tag run past the
+                            // screen edge. One line with "…" instead.
                             Text(tag)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(Color.centraliaInk)
                                 .padding(.horizontal, 10)

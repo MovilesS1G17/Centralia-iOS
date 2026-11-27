@@ -196,7 +196,7 @@ struct APIAuthenticationRepository: V3AuthenticationRepository {
             return AuthenticationError.networkUnavailable
         case .configurationMissing, .invalidResponse:
             return AuthenticationError.serverMessage(api.localizedDescription)
-        case let .server(_, code, detail, email, retryAfter):
+        case let .server(_, code, detail, email, retryAfter, _):
             switch code {
             case "invalid_credentials": return AuthenticationError.invalidCredentials
             case "account_already_exists": return AuthenticationError.accountAlreadyExists

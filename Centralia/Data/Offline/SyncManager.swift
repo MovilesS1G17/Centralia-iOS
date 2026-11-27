@@ -85,7 +85,7 @@ actor SyncManager {
     /// 4xx answers (except timeouts and rate limits) will never succeed.
     nonisolated static func isPermanentFailure(_ error: Error) -> Bool {
         guard let apiError = error as? APIClientError,
-              case let .server(status, _, _, _, _) = apiError else { return false }
+              case let .server(status, _, _, _, _, _) = apiError else { return false }
         return (400...499).contains(status) && status != 408 && status != 429
     }
 }

@@ -5,7 +5,9 @@ enum APIClientError: LocalizedError, Equatable {
     case sessionExpired
     case networkUnavailable
     case invalidResponse
-    case server(status: Int, code: String, detail: String, email: String?, retryAfter: Int?)
+    /// `title` is the short headline some errors carry, e.g. a rejected link:
+    /// "This TikTok link isn't a video". `detail` says how to fix it.
+    case server(status: Int, code: String, detail: String, email: String?, retryAfter: Int?, title: String? = nil)
 
     var errorDescription: String? {
         switch self {
@@ -17,7 +19,7 @@ enum APIClientError: LocalizedError, Equatable {
             "We couldn't reach Centralia. Check your connection and try again."
         case .invalidResponse:
             "Centralia returned an unexpected response. Please try again."
-        case let .server(_, _, detail, _, _):
+        case let .server(_, _, detail, _, _, _):
             detail
         }
     }
@@ -36,6 +38,7 @@ private struct APIErrorEnvelope: Decodable {
     let detail: String
     let email: String?
     let retryAfter: Int?
+    let title: String?
 }
 
 struct APIClient {
@@ -116,7 +119,8 @@ struct APIClient {
                 code: envelope?.code ?? "http_\(http.statusCode)",
                 detail: envelope?.detail ?? "Centralia couldn't complete this request. Please try again.",
                 email: envelope?.email,
-                retryAfter: envelope?.retryAfter
+                retryAfter: envelope?.retryAfter,
+                title: envelope?.title
             )
         }
         return data

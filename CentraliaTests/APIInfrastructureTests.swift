@@ -146,7 +146,7 @@ struct APIInfrastructureTests {
         do {
             _ = try await client().send("/v1/auth/login", method: "POST", authenticated: false)
             Issue.record("Expected a verification error")
-        } catch APIClientError.server(let status, let code, _, let email, let retryAfter) {
+        } catch APIClientError.server(let status, let code, _, let email, let retryAfter, _) {
             #expect(status == 403)
             #expect(code == "email_not_verified")
             #expect(email == "april@example.test")

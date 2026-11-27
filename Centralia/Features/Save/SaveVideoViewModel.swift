@@ -18,6 +18,9 @@ final class SaveVideoViewModel {
     private var hasExplicitFolderSelection = false
 
     private(set) var analysisState: AnalysisState = .idle
+    /// Headline for a link that can't be saved ("This TikTok link isn't a video");
+    /// the `.failed` message says how to fix it.
+    private(set) var failureTitle: String = LinkProblem.defaultTitle
     private(set) var metadata: ImportedVideoMetadata?
     private(set) var suggestedTags: [String] = []
     private(set) var suggestedFolderName: String?
@@ -169,7 +172,9 @@ final class SaveVideoViewModel {
             metadata = nil
             suggestedTags = []
             suggestedFolderName = nil
-            analysisState = .failed(FeatureError.message(for: error))
+            let problem = LinkProblem.from(error: error, message: FeatureError.message(for: error))
+            failureTitle = problem.title
+            analysisState = .failed(problem.message)
             reportError(error)
         }
     }
