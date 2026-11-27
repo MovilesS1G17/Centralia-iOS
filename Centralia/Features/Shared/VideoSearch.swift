@@ -1,13 +1,13 @@
 import Foundation
 
-nonisolated enum SearchFolderFilter: Codable, Equatable, Sendable {
+nonisolated enum SearchFolderFilter: Codable, Hashable, Sendable {
     case all
     case unorganized
     case folder(UUID)
 }
 
 /// What the user asked for. Empty fields do not narrow the result.
-nonisolated struct VideoSearchCriteria: Codable, Equatable, Sendable {
+nonisolated struct VideoSearchCriteria: Codable, Hashable, Sendable {
     var text = ""
     var platform: VideoPlatform?
     var creator: String?

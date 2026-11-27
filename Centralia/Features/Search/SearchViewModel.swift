@@ -15,11 +15,16 @@ final class SearchViewModel {
     private let searchHistoryRepository: any SearchHistoryRepository
     private let analytics: any AnalyticsTracking
     private var hasTrackedScreen = false
+    @ObservationIgnored private var resultsCache = LRUCache<VideoSearchCriteria, [VideoItem]>(capacity: 20)
 
     private(set) var state: LoadState = .idle
     private(set) var failureMessage: String?
-    private(set) var videos: [VideoItem] = []
-    private(set) var folders: [LibraryFolder] = []
+    private(set) var videos: [VideoItem] = [] {
+        didSet { resultsCache.removeAll() }
+    }
+    private(set) var folders: [LibraryFolder] = [] {
+        didSet { resultsCache.removeAll() }
+    }
     private(set) var recentSearches: [String] = []
     private(set) var recentlyDeletedVideo: VideoItem?
     /// Shake to undo: the pop-up the backend sent for `recentlyDeletedVideo`.
@@ -42,12 +47,20 @@ final class SearchViewModel {
     }
 
     var filteredVideos: [VideoItem] {
+        // SwiftUI must observe the library even when the results are cached.
+        let videos = self.videos
+        let folders = self.folders
         guard !selectedFolderIsUnavailable else { return [] }
-        return VideoSearch.filter(
+        let key = criteria
+        if let cached = resultsCache.value(for: key) { return cached }
+
+        let results = VideoSearch.filter(
             videos,
-            criteria: criteria,
-            folderNames: Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0.name) })
+            criteria: key,
+            folderNames: Dictionary(folders.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         )
+        resultsCache.insert(results, for: key)
+        return results
     }
 
     var availableCreators: [String] {

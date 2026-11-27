@@ -64,6 +64,7 @@ struct ContentView: View {
                         userChanged: container.session.updateAuthenticatedUser,
                         signedOut: container.session.signOut
                     )
+                    .environment(\.recentlyViewed, container.recentlyViewed)
                 }
             }
         }

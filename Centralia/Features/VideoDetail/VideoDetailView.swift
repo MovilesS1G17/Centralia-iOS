@@ -10,8 +10,10 @@ struct VideoDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.recentlyViewed) private var recentlyViewed
     @State private var viewModel: VideoDetailViewModel
     @State private var startsPlaying: Bool
+    @State private var recordedVisit = false
     @State private var showsTagEditor = false
     @State private var showsFolderPicker = false
     @State private var showsNoteEditor = false
@@ -117,6 +119,11 @@ struct VideoDetailView: View {
         .task {
             viewModel.trackScreenViewed()
             await viewModel.load()
+        }
+        .task {
+            guard !recordedVisit, !Task.isCancelled, let recentlyViewed else { return }
+            recordedVisit = true
+            await recentlyViewed.record(RecentlyViewedEntry(video: viewModel.video))
         }
         .task {
             guard startsPlaying else { return }

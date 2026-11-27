@@ -376,3 +376,46 @@ struct ShakeToUndoPopup: View {
         }
     }
 }
+
+/// "Recently viewed" (Sprint 3 · Core Data). One card per short the user
+/// opened lately, newest first, with how many times they opened it. Same card
+/// as `RecentlyViewedCard` on Android.
+struct RecentlyViewedCard: View {
+    let video: VideoItem
+    let viewCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .bottomLeading) {
+                    Color.centraliaSoftSurface
+                    VideoCoverImage(url: video.coverURL)
+                    VideoCoverGradient()
+                    Text(video.platform.displayName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(8)
+                }
+                .frame(width: 128, height: 160)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                Text(video.displayTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.centraliaInk)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                Text(viewCount == 1 ? "Viewed once" : "Viewed \(viewCount) times")
+                    .font(.caption)
+                    .foregroundStyle(Color.centraliaSecondaryText)
+                    .lineLimit(1)
+            }
+            .frame(width: 128, alignment: .leading)
+        }
+        .buttonStyle(CentraliaPressStyle())
+        .accessibilityHint("Opens the short")
+        .accessibilityIdentifier("recentlyViewed_\(video.id.uuidString)")
+    }
+}
