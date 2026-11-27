@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LibraryView: View {
     @Environment(\.offlineLibraryStatus) private var offlineStatus
+    @Environment(\.recentlyViewed) private var recentlyViewed
     private enum Route: Hashable {
         case video(VideoDetailRoute)
         case folder(LibraryFolder)
@@ -12,6 +13,7 @@ struct LibraryView: View {
     @State private var path: [Route] = []
     @State private var pendingDeletion: VideoItem?
     @State private var movingVideo: VideoItem?
+    @State private var recentEntries: [RecentlyViewedEntry] = []
 
     private let presentSave: () -> Void
     private let userDisplayName: String?
@@ -79,6 +81,10 @@ struct LibraryView: View {
                 viewModel.trackScreenViewed()
                 if let revision = offlineStatus?.syncRevision, revision > 0 { await viewModel.retry() }
                 else { await viewModel.load() }
+            }
+            .task(id: recentlyViewed?.revision) {
+                let entries = await recentlyViewed?.recent(limit: RecentlyViewed.shownInLibrary) ?? []
+                if !Task.isCancelled { recentEntries = entries }
             }
             .onChange(of: offlineStatus?.folderSnapshot) { _, folders in
                 if let folders { viewModel.applyFolderSnapshot(folders) }
@@ -179,6 +185,8 @@ struct LibraryView: View {
             if viewModel.videos.isEmpty {
                 emptyLibrary
             } else {
+                recentlyViewedRow
+
                 if viewModel.filteredVideos.isEmpty {
                     ContentUnavailableView(
                         "No saved \(viewModel.selectedFilter.displayName)",
@@ -189,6 +197,29 @@ struct LibraryView: View {
                 } else {
                     masonryFeed
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var recentlyViewedRow: some View {
+        let recent = RecentlyViewed.videos(for: recentEntries, in: viewModel.videos)
+        if !recent.isEmpty {
+            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.small) {
+                Text("Recently viewed")
+                    .font(CentraliaTheme.Typography.sectionTitle)
+                    .accessibilityAddTraits(.isHeader)
+
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: CentraliaTheme.Spacing.small) {
+                        ForEach(recent) { item in
+                            RecentlyViewedCard(video: item.video, viewCount: item.entry.viewCount) {
+                                path.append(.video(VideoDetailRoute(video: item.video)))
+                            }
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
             }
         }
     }

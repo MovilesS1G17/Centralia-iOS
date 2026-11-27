@@ -7,6 +7,7 @@ final class DependencyContainer {
     let folderRepository: any FolderRepository
     let searchHistoryRepository: any SearchHistoryRepository
     let savedSearchStore: SavedSearchStore
+    let recentlyViewed: RecentlyViewedHistory
     let folderSuggestionCache: FolderSuggestionCache
     let userRepository: any UserRepository
     let libraryExportService: any LibraryExportService
@@ -25,6 +26,7 @@ final class DependencyContainer {
         folderRepository: any FolderRepository,
         searchHistoryRepository: any SearchHistoryRepository,
         savedSearchStore: SavedSearchStore = SavedSearchStore(),
+        recentlyViewed: RecentlyViewedHistory,
         folderSuggestionCache: FolderSuggestionCache = FolderSuggestionCache(),
         userRepository: any UserRepository,
         libraryExportService: any LibraryExportService,
@@ -39,6 +41,7 @@ final class DependencyContainer {
         self.folderRepository = folderRepository
         self.searchHistoryRepository = searchHistoryRepository
         self.savedSearchStore = savedSearchStore
+        self.recentlyViewed = recentlyViewed
         self.folderSuggestionCache = folderSuggestionCache
         self.userRepository = userRepository
         self.libraryExportService = libraryExportService
@@ -58,7 +61,9 @@ final class DependencyContainer {
         let libraryRepository = MockLibraryRepository(store: store, includeSampleContent: includeSampleContent)
         let userRepository = MockUserRepository(store: store)
         let session = AppSession()
-        let clearSuggestions = { [weak session] in
+        let recentlyViewed = RecentlyViewedHistory(store: InMemoryRecentlyViewedStore())
+        let clearSessionData = { [weak session] in
+            recentlyViewed.clear()
             if let accountID = session?.authenticatedUserID {
                 Task { await folderSuggestionCache.clear(for: accountID) }
             }
@@ -75,10 +80,10 @@ final class DependencyContainer {
                 status: status,
                 session: session,
                 replayVideo: { _ in },
-                onSignOut: clearSuggestions
+                onSignOut: clearSessionData
             )
         }
-        if offlineLibrary == nil { session.onSignOut = clearSuggestions }
+        if offlineLibrary == nil { session.onSignOut = clearSessionData }
         let folders: any FolderRepository = offlineLibrary.map { $0 as any FolderRepository } ?? libraryRepository
         return DependencyContainer(
             authenticationRepository: MockAuthenticationRepository(),
@@ -88,6 +93,7 @@ final class DependencyContainer {
             folderRepository: folders,
             searchHistoryRepository: MockSearchHistoryRepository(store: store),
             savedSearchStore: savedSearchStore,
+            recentlyViewed: recentlyViewed,
             folderSuggestionCache: folderSuggestionCache,
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
@@ -111,6 +117,7 @@ final class DependencyContainer {
         let status = OfflineStatus()
         let connectivity = ConnectivityMonitor()
         let session = AppSession(isRestoringSession: true)
+        let recentlyViewed = RecentlyViewedHistory(store: CoreDataRecentlyViewedStore())
         let folderSuggestionCache = FolderSuggestionCache()
         let userRepository = OfflineUserRepository(
             remote: APIUserRepository(client: api),
@@ -130,6 +137,7 @@ final class DependencyContainer {
             session: session,
             replayVideo: { try await videosAPI.replay($0) },
             onSignOut: { [weak session] in
+                recentlyViewed.clear()
                 userRepository.clear()
                 searchHistoryRepository.clear()
                 CoverImageLoader.shared.clear()
@@ -151,6 +159,7 @@ final class DependencyContainer {
             analyticsRepository: APIAnalyticsRepository(client: api),
             folderRepository: libraryRepository,
             searchHistoryRepository: searchHistoryRepository,
+            recentlyViewed: recentlyViewed,
             folderSuggestionCache: folderSuggestionCache,
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(

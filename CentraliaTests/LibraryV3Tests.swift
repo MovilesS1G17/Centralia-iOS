@@ -345,6 +345,35 @@ struct SearchScreenStateTests {
         #expect(viewModel.videos.count == 1)
     }
 
+    @Test func cachedSearchResultsFollowLibraryAndFolderChanges() async {
+        let folder = LibraryFolder(id: UUID(), name: "Recipes", symbolName: "folder")
+        let video = LibraryFixtures.video(folderID: folder.id)
+        let library = V3SimulatedLibrary(videos: [video], folders: [folder])
+        let viewModel = SearchViewModel(
+            videoRepository: library,
+            folderRepository: library,
+            searchHistoryRepository: History()
+        )
+        await viewModel.load()
+
+        viewModel.query = "recipes"
+        #expect(viewModel.filteredVideos.map(\.id) == [video.id])
+        viewModel.applyFolderSnapshot([LibraryFolder(id: folder.id, name: "Cooking", symbolName: "folder")])
+        #expect(viewModel.filteredVideos.isEmpty)
+
+        viewModel.query = "cooking"
+        #expect(viewModel.filteredVideos.map(\.id) == [video.id])
+        await viewModel.move(video, to: nil)
+        #expect(viewModel.filteredVideos.isEmpty)
+
+        viewModel.query = ""
+        #expect(viewModel.filteredVideos.map(\.id) == [video.id])
+        await viewModel.delete(video)
+        #expect(viewModel.filteredVideos.isEmpty)
+        await viewModel.undoDelete()
+        #expect(viewModel.filteredVideos.map(\.id) == [video.id])
+    }
+
     @Test func submittedSearchesAreRecordedAndListed() async {
         let library = V3SimulatedLibrary(videos: [LibraryFixtures.video()])
         let history = History()
