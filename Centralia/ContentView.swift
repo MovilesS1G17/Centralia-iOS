@@ -55,7 +55,10 @@ struct ContentView: View {
                         folderRepository: container.folderRepository,
                         playbackRepository: container.videoPlaybackRepository,
                         offlineStatus: container.offlineStatus,
+                        trends: container.trends,
                         searchHistoryRepository: container.searchHistoryRepository,
+                        savedSearchStore: container.savedSearchStore,
+                        folderSuggestionCache: container.folderSuggestionCache,
                         userRepository: container.userRepository,
                         libraryExportService: container.libraryExportService,
                         authenticationRepository: container.authenticationRepository,
@@ -63,13 +66,11 @@ struct ContentView: View {
                         userChanged: container.session.updateAuthenticatedUser,
                         signedOut: container.session.signOut
                     )
-                    // "Recently viewed" (Core Data) for every screen inside the app.
                     .environment(\.recentlyViewed, container.recentlyViewed)
-                    // Sprint 4: Watch later, Rediscover, Creators, Trends, Insights.
-                    .environment(\.sprint4, container.sprint4)
                 }
             }
         }
+        .tint(Color.centraliaInk)
         .animation(.easeInOut(duration: 0.2), value: container.session.phase)
         .task {
             await container.session.restoreAuthentication(

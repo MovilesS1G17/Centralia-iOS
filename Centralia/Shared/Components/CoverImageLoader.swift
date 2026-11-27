@@ -18,15 +18,18 @@ final class CoverImageLoader {
 
     private let memory = NSCache<NSURL, UIImage>()
     private let session: URLSession
+    private nonisolated let responseCache: URLCache
 
     init() {
         memory.countLimit = 200
         let configuration = URLSessionConfiguration.default
-        configuration.urlCache = URLCache(
+        let responseCache = URLCache(
             memoryCapacity: 10 * 1024 * 1024,
             diskCapacity: 100 * 1024 * 1024,
             directory: URL.cachesDirectory.appending(path: "covers", directoryHint: .isDirectory)
         )
+        self.responseCache = responseCache
+        configuration.urlCache = responseCache
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         session = URLSession(configuration: configuration)
     }
@@ -42,6 +45,10 @@ final class CoverImageLoader {
         guard let image = await Self.decodeInBackground(data) else { return nil }
         memory.setObject(image, forKey: url as NSURL)
         return image
+    }
+
+    nonisolated func cachedResponseData(for url: URL) -> Data? {
+        responseCache.cachedResponse(for: URLRequest(url: url))?.data
     }
 
     /// Multithreading (Sprint 3, Gustavo): structured concurrency with a task group.
@@ -78,7 +85,7 @@ final class CoverImageLoader {
 
     func clear() {
         memory.removeAllObjects()
-        session.configuration.urlCache?.removeAllCachedResponses()
+        responseCache.removeAllCachedResponses()
     }
 
     nonisolated private static func decodeInBackground(_ data: Data) async -> UIImage? {
