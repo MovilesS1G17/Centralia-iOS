@@ -18,28 +18,21 @@ final class CoverImageLoader {
 
     private let memory = NSCache<NSURL, UIImage>()
     private let session: URLSession
-    private nonisolated let responseCache: URLCache
 
     init() {
         memory.countLimit = 200
         let configuration = URLSessionConfiguration.default
-        let responseCache = URLCache(
+        configuration.urlCache = URLCache(
             memoryCapacity: 10 * 1024 * 1024,
             diskCapacity: 100 * 1024 * 1024,
             directory: URL.cachesDirectory.appending(path: "covers", directoryHint: .isDirectory)
         )
-        self.responseCache = responseCache
-        configuration.urlCache = responseCache
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         session = URLSession(configuration: configuration)
     }
 
     func cachedImage(for url: URL) -> UIImage? {
         memory.object(forKey: url as NSURL)
-    }
-
-    nonisolated func cachedResponseData(for url: URL) -> Data? {
-        responseCache.cachedResponse(for: URLRequest(url: url))?.data
     }
 
     func image(for url: URL) async -> UIImage? {
@@ -51,9 +44,41 @@ final class CoverImageLoader {
         return image
     }
 
+    /// Multithreading (Sprint 3, Gustavo): structured concurrency with a task group.
+    ///
+    /// When the Library finishes loading, the covers of the first cards are
+    /// downloaded and decoded before the user scrolls to them. Each cover is a
+    /// child task of one `withTaskGroup`, so they run in parallel, at most
+    /// `maxConcurrent` at a time (a new one starts as soon as one finishes).
+    /// The group returns how many covers are ready. Cancelling the caller
+    /// (leaving the screen) cancels every child.
+    @discardableResult
+    func prefetch(_ urls: [URL], maxConcurrent: Int = 4) async -> Int {
+        let pending = urls.filter { cachedImage(for: $0) == nil }
+        guard !pending.isEmpty else { return urls.count }
+
+        let loaded = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
+            var iterator = pending.makeIterator()
+            for _ in 0..<min(maxConcurrent, pending.count) {
+                guard let url = iterator.next() else { break }
+                group.addTask { await self.image(for: url) != nil }
+            }
+            var ready = 0
+            for await succeeded in group {
+                if succeeded { ready += 1 }
+                if Task.isCancelled { group.cancelAll(); break }
+                if let url = iterator.next() {
+                    group.addTask { await self.image(for: url) != nil }
+                }
+            }
+            return ready
+        }
+        return loaded + (urls.count - pending.count)
+    }
+
     func clear() {
         memory.removeAllObjects()
-        responseCache.removeAllCachedResponses()
+        session.configuration.urlCache?.removeAllCachedResponses()
     }
 
     nonisolated private static func decodeInBackground(_ data: Data) async -> UIImage? {

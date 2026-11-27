@@ -4,6 +4,7 @@ import Observation
 @Observable
 final class LogInViewModel {
     private let repository: any AuthenticationRepository
+    private let rememberedEmail: any RememberedEmailStoring
 
     var email = ""
     var password = ""
@@ -12,13 +13,22 @@ final class LogInViewModel {
     var failureMessage: String?
     var isSubmittingEmail = false
     var activeProvider: AuthenticationProvider?
+    /// "Remember my email": kept in the Keychain after a successful sign-in.
+    var rememberEmail = true
 
     var isBusy: Bool {
         isSubmittingEmail || activeProvider != nil
     }
 
-    init(repository: any AuthenticationRepository) {
+    init(
+        repository: any AuthenticationRepository,
+        rememberedEmail: any RememberedEmailStoring = InMemoryRememberedEmailStore()
+    ) {
         self.repository = repository
+        self.rememberedEmail = rememberedEmail
+        if let saved = rememberedEmail.email(), !saved.isEmpty {
+            email = saved
+        }
     }
 
     func logIn() async -> LogInOutcome? {
@@ -31,10 +41,13 @@ final class LogInViewModel {
         defer { isSubmittingEmail = false }
 
         do {
-            let user = try await repository.logIn(
-                email: AuthenticationValidation.normalizedEmail(email),
-                password: password
-            )
+            let normalizedEmail = AuthenticationValidation.normalizedEmail(email)
+            let user = try await repository.logIn(email: normalizedEmail, password: password)
+            if rememberEmail {
+                rememberedEmail.remember(normalizedEmail)
+            } else {
+                rememberedEmail.forget()
+            }
             return .authenticated(user)
         } catch is CancellationError {
             return nil
