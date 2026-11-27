@@ -4,6 +4,7 @@ struct LibraryView: View {
     @Environment(\.offlineLibraryStatus) private var offlineStatus
     @Environment(\.recentlyViewed) private var recentlyViewed
     private enum Route: Hashable {
+        case creators
         case video(VideoDetailRoute)
         case folder(LibraryFolder)
     }
@@ -13,6 +14,7 @@ struct LibraryView: View {
     @State private var path: [Route] = []
     @State private var pendingDeletion: VideoItem?
     @State private var movingVideo: VideoItem?
+    @State private var creatorsCache = CreatorsCache()
     @State private var recentEntries: [RecentlyViewedEntry] = []
 
     private let presentSave: () -> Void
@@ -58,6 +60,13 @@ struct LibraryView: View {
                     LibrarySearchEntry {
                         selectedTab = .search
                     }
+
+                    Button {
+                        path.append(.creators)
+                    } label: {
+                        Label("Creators", systemImage: "person.2")
+                    }
+                    .buttonStyle(.bordered)
 
                     sourceFilters
 
@@ -286,6 +295,12 @@ struct LibraryView: View {
     @ViewBuilder
     private func destination(for route: Route) -> some View {
         switch route {
+        case .creators:
+            CreatorsView(
+                viewModel: CreatorsViewModel(videoRepository: videoRepository, cache: creatorsCache),
+                openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
+            )
+
         case let .video(route):
             VideoDetailView(
                 video: route.video,
