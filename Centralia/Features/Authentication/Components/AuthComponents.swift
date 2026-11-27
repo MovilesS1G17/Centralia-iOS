@@ -70,14 +70,19 @@ struct CentraliaPrimaryButton: View {
                         .accessibilityLabel("Loading")
                 }
             }
-            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(isDisabled && !isLoading ? Color.centraliaSecondaryText : Color.white)
+            .padding(.horizontal, CentraliaTheme.Spacing.medium)
+            .padding(.vertical, CentraliaTheme.Spacing.small)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 52)
-            .background(Color.centraliaInk, in: RoundedRectangle(cornerRadius: CentraliaTheme.Radius.control))
+            .background(
+                isDisabled && !isLoading ? Color.centraliaSoftSurface : Color.centraliaInk,
+                in: RoundedRectangle(cornerRadius: CentraliaTheme.Radius.control)
+            )
         }
         .buttonStyle(CentraliaPressStyle())
         .disabled(isDisabled || isLoading)
-        .opacity(isDisabled && !isLoading ? 0.48 : 1)
         .accessibilityValue(isLoading ? "In progress" : "")
     }
 }
@@ -108,13 +113,18 @@ struct CentraliaSecondaryButton<Icon: View>: View {
 
                 Text(title)
                     .font(.headline)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(Color.centraliaInk)
+            .foregroundStyle(isDisabled ? Color.centraliaSecondaryText : Color.centraliaInk)
+            .padding(.horizontal, CentraliaTheme.Spacing.medium)
+            .padding(.vertical, CentraliaTheme.Spacing.small)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 52)
-            .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: CentraliaTheme.Radius.control))
+            .background(
+                isDisabled ? Color.centraliaSoftSurface : Color.centraliaSurface,
+                in: RoundedRectangle(cornerRadius: CentraliaTheme.Radius.control)
+            )
             .overlay {
                 RoundedRectangle(cornerRadius: CentraliaTheme.Radius.control)
                     .stroke(Color.centraliaDivider, lineWidth: 1)
@@ -122,7 +132,6 @@ struct CentraliaSecondaryButton<Icon: View>: View {
         }
         .buttonStyle(CentraliaPressStyle())
         .disabled(isDisabled)
-        .opacity(isDisabled ? 0.48 : 1)
     }
 }
 
@@ -159,9 +168,9 @@ struct AuthenticationTextField: View {
             HStack(spacing: CentraliaTheme.Spacing.small) {
                 Group {
                     if isSecure && !revealsSecureText {
-                        SecureField(placeholder, text: $text)
+                        SecureField(label, text: $text, prompt: prompt)
                     } else {
-                        TextField(placeholder, text: $text)
+                        TextField(label, text: $text, prompt: prompt)
                     }
                 }
                 .textContentType(contentType)
@@ -169,12 +178,14 @@ struct AuthenticationTextField: View {
                 .textInputAutocapitalization(usesNameInput ? .words : .never)
                 .autocorrectionDisabled(!usesNameInput)
                 .submitLabel(submitLabel)
+                .accessibilityLabel(label)
 
                 if isSecure {
                     Button {
                         revealsSecureText.toggle()
                     } label: {
                         Image(systemName: revealsSecureText ? "eye.slash" : "eye")
+                            .font(.system(size: 20))
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
@@ -188,38 +199,51 @@ struct AuthenticationTextField: View {
             .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: CentraliaTheme.Radius.control))
             .overlay {
                 RoundedRectangle(cornerRadius: CentraliaTheme.Radius.control)
-                    .stroke(errorMessage == nil ? Color.centraliaDivider : Color.red, lineWidth: 1)
+                    .stroke(errorMessage == nil ? Color.centraliaDivider : Color.centraliaError, lineWidth: 1)
             }
 
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.centraliaError)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Error: \(errorMessage)")
             }
         }
     }
+
+    private var prompt: Text {
+        Text(placeholder).foregroundStyle(Color.centraliaSecondaryText)
+    }
 }
 
 struct AuthenticationDivider: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let text: String
 
     var body: some View {
         HStack(spacing: CentraliaTheme.Spacing.medium) {
-            Rectangle()
-                .fill(Color.centraliaDivider)
-                .frame(height: 1)
+            if !dynamicTypeSize.isAccessibilitySize {
+                divider
+            }
 
             Text(text)
                 .font(.footnote)
                 .foregroundStyle(Color.centraliaSecondaryText)
-                .fixedSize()
+                .multilineTextAlignment(.center)
 
-            Rectangle()
-                .fill(Color.centraliaDivider)
-                .frame(height: 1)
+            if !dynamicTypeSize.isAccessibilitySize {
+                divider
+            }
         }
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.centraliaDivider)
+            .frame(height: 1)
+            .accessibilityHidden(true)
     }
 }
 
@@ -229,7 +253,7 @@ struct InlineAuthenticationError: View {
     var body: some View {
         Label(message, systemImage: "exclamationmark.circle.fill")
             .font(.footnote)
-            .foregroundStyle(.red)
+            .foregroundStyle(Color.centraliaError)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityAddTraits(.isStaticText)

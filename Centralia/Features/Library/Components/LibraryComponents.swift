@@ -121,12 +121,40 @@ struct FolderShortcut: View {
     }
 }
 
+struct LibraryVideoGrid<Card: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let videos: [VideoItem]
+    @ViewBuilder let card: (VideoItem, Int) -> Card
+
+    var body: some View {
+        let entries = Array(videos.enumerated())
+        if dynamicTypeSize.isAccessibilitySize {
+            column(entries)
+        } else {
+            HStack(alignment: .top, spacing: 12) {
+                column(entries.filter { $0.offset.isMultiple(of: 2) })
+                column(entries.filter { !$0.offset.isMultiple(of: 2) })
+            }
+        }
+    }
+
+    private func column(_ entries: [(offset: Int, element: VideoItem)]) -> some View {
+        LazyVStack(spacing: 12) {
+            ForEach(entries, id: \.element.id) { index, video in
+                card(video, index)
+            }
+        }
+    }
+}
+
 struct LibraryVideoCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let video: VideoItem
     let styleIndex: Int
-    let isPlaying: Bool
     let openDetail: () -> Void
-    let togglePlayback: () -> Void
+    let play: () -> Void
     let requestMove: () -> Void
     let requestDelete: () -> Void
 
@@ -160,15 +188,15 @@ struct LibraryVideoCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open \(video.displayTitle)")
 
-                Button(action: togglePlayback) {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                Button(action: play) {
+                    Image(systemName: "play.fill")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.white)
                         .frame(width: 58, height: 58)
                         .background(Color.centraliaInk.opacity(0.92), in: Circle())
                 }
                 .buttonStyle(CentraliaPressStyle())
-                .accessibilityLabel(isPlaying ? "Pause preview" : "Play preview")
+                .accessibilityLabel("Play \(video.displayTitle)")
 
                 Text(video.platform.displayName)
                     .font(.caption.weight(.semibold))
@@ -195,20 +223,20 @@ struct LibraryVideoCard: View {
                         Text(video.displayTitle)
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(Color.centraliaInk)
-                            .lineLimit(2)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                             .multilineTextAlignment(.leading)
 
                         Text(video.creatorDisplayName)
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(Color.centraliaSecondaryText)
-                            .lineLimit(1)
+                            .foregroundStyle(Color.centraliaVideoMetadata)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                             .padding(.trailing, 36)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(
                         maxWidth: .infinity,
-                        maxHeight: .infinity,
+                        minHeight: metadataHeight,
                         alignment: .topLeading
                     )
                     .contentShape(Rectangle())
@@ -239,10 +267,9 @@ struct LibraryVideoCard: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
-                .tint(Color.centraliaSecondaryText)
+                .tint(Color.centraliaVideoMetadata)
                 .accessibilityLabel("More actions for \(video.displayTitle)")
             }
-            .frame(height: metadataHeight)
             .padding(.trailing, 4)
         }
         .background(cardColor, in: RoundedRectangle(cornerRadius: 20))

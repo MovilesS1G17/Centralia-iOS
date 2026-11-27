@@ -118,6 +118,8 @@ final class LibraryViewModel {
         await load()
     }
 
+    func applyFolderSnapshot(_ updated: [LibraryFolder]) { folders = updated }
+
     func delete(_ video: VideoItem) async {
         do {
             let deletion = try await videoRepository.deleteVideo(id: video.id)

@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct LogInView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @State private var viewModel: LogInViewModel
     @State private var showsPasswordReset = false
 
@@ -79,7 +81,11 @@ struct LogInView: View {
                     AuthenticationDivider(text: "or continue with")
                         .padding(.vertical, CentraliaTheme.Spacing.xSmall)
 
-                    HStack(spacing: CentraliaTheme.Spacing.medium) {
+                    let providerLayout = dynamicTypeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(spacing: CentraliaTheme.Spacing.medium))
+                        : AnyLayout(HStackLayout(spacing: CentraliaTheme.Spacing.medium))
+
+                    providerLayout {
                         socialButton(for: .apple)
                         socialButton(for: .google)
                     }

@@ -105,13 +105,38 @@ struct APIAuthenticationRepository: V3AuthenticationRepository {
     }
 
     func restoreSession() async throws -> AuthenticatedUser? {
-        guard try client.tokenStore.accessToken() != nil else { return nil }
+        let store = client.tokenStore
+        guard let token = try store.accessToken() else { return nil }
         do {
-            return try await currentUser()
+            let user = try await currentUser()
+            guard try store.accessToken() == token else { return nil }
+            try? store.save(accessToken: token, verifiedUser: user)
+            return user
         } catch AuthenticationError.sessionExpired {
-            try client.tokenStore.clearAccessToken()
+            if try store.accessToken() == token { try store.clearAccessToken() }
             return nil
+        } catch AuthenticationError.networkUnavailable {
+            guard let user = try store.verifiedUser(forAccessToken: token),
+                  Self.canOpenOffline(with: token, userID: user.id) else { throw AuthenticationError.networkUnavailable }
+            return user
         }
+    }
+
+    /// The token and identity were stored together after a server response. Offline we
+    /// only use that pair while the token's subject matches and its expiry is in the future.
+    private static func canOpenOffline(with token: String, userID: UUID) -> Bool {
+        struct Claims: Decodable {
+            let sub: UUID
+            let exp: Double
+        }
+
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts.allSatisfy({ !$0.isEmpty }) else { return false }
+        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.utf8.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let claims = try? JSONDecoder().decode(Claims.self, from: data) else { return false }
+        return claims.sub == userID && claims.exp > Date().timeIntervalSince1970
     }
 
     func updateDisplayName(_ displayName: String, for user: AuthenticatedUser) async throws -> AuthenticatedUser {
@@ -154,8 +179,9 @@ struct APIAuthenticationRepository: V3AuthenticationRepository {
             guard session.tokenType.lowercased() == "bearer" else {
                 throw APIClientError.invalidResponse
             }
-            try client.tokenStore.save(accessToken: session.accessToken)
-            return session.user.model
+            let user = session.user.model
+            try client.tokenStore.save(accessToken: session.accessToken, verifiedUser: user)
+            return user
         } catch {
             throw map(error)
         }

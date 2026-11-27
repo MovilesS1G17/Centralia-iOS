@@ -6,6 +6,8 @@ final class DependencyContainer {
     let analyticsRepository: any AnalyticsRepository
     let folderRepository: any FolderRepository
     let searchHistoryRepository: any SearchHistoryRepository
+    let savedSearchStore: SavedSearchStore
+    let folderSuggestionCache: FolderSuggestionCache
     let userRepository: any UserRepository
     let libraryExportService: any LibraryExportService
     let videoImportPipeline: any VideoImportPipeline
@@ -22,6 +24,8 @@ final class DependencyContainer {
         analyticsRepository: any AnalyticsRepository,
         folderRepository: any FolderRepository,
         searchHistoryRepository: any SearchHistoryRepository,
+        savedSearchStore: SavedSearchStore = SavedSearchStore(),
+        folderSuggestionCache: FolderSuggestionCache = FolderSuggestionCache(),
         userRepository: any UserRepository,
         libraryExportService: any LibraryExportService,
         videoImportPipeline: any VideoImportPipeline,
@@ -34,6 +38,8 @@ final class DependencyContainer {
         self.analyticsRepository = analyticsRepository
         self.folderRepository = folderRepository
         self.searchHistoryRepository = searchHistoryRepository
+        self.savedSearchStore = savedSearchStore
+        self.folderSuggestionCache = folderSuggestionCache
         self.userRepository = userRepository
         self.libraryExportService = libraryExportService
         self.videoImportPipeline = videoImportPipeline
@@ -41,24 +47,57 @@ final class DependencyContainer {
         self.offlineStatus = offlineStatus
     }
 
-    static func mock() -> DependencyContainer {
-        let store = MockDataStore()
-        let libraryRepository = MockLibraryRepository(store: store)
+    static func mock(
+        store: MockDataStore = MockDataStore(),
+        savedSearchStore: SavedSearchStore = SavedSearchStore(),
+        folderSuggestionCache: FolderSuggestionCache = FolderSuggestionCache(),
+        includeSampleContent: Bool = true,
+        offlineDemoDirectory: URL? = nil,
+        offline: Bool = false
+    ) -> DependencyContainer {
+        let libraryRepository = MockLibraryRepository(store: store, includeSampleContent: includeSampleContent)
         let userRepository = MockUserRepository(store: store)
+        let session = AppSession()
+        let clearSuggestions = { [weak session] in
+            if let accountID = session?.authenticatedUserID {
+                Task { await folderSuggestionCache.clear(for: accountID) }
+            }
+        }
+        let status = OfflineStatus()
+        status.isOnline = !offline
+        let playback = MockVideoPlaybackRepository(videoRepository: libraryRepository)
+        let offlineLibrary = offlineDemoDirectory.map { directory in
+            makeOfflineLibrary(
+                videos: libraryRepository,
+                folders: libraryRepository,
+                playback: playback,
+                directory: directory,
+                status: status,
+                session: session,
+                replayVideo: { _ in },
+                onSignOut: clearSuggestions
+            )
+        }
+        if offlineLibrary == nil { session.onSignOut = clearSuggestions }
+        let folders: any FolderRepository = offlineLibrary.map { $0 as any FolderRepository } ?? libraryRepository
         return DependencyContainer(
             authenticationRepository: MockAuthenticationRepository(),
             videoItemRepository: libraryRepository,
-            videoPlaybackRepository: MockVideoPlaybackRepository(videoRepository: libraryRepository),
+            videoPlaybackRepository: playback,
             analyticsRepository: MockAnalyticsRepository(),
-            folderRepository: libraryRepository,
+            folderRepository: folders,
             searchHistoryRepository: MockSearchHistoryRepository(store: store),
+            savedSearchStore: savedSearchStore,
+            folderSuggestionCache: folderSuggestionCache,
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
                 videoRepository: libraryRepository,
-                folderRepository: libraryRepository,
+                folderRepository: folders,
                 userRepository: userRepository
             ),
-            videoImportPipeline: MockVideoImportPipeline()
+            videoImportPipeline: MockVideoImportPipeline(),
+            session: session,
+            offlineStatus: status
         )
     }
 
@@ -71,26 +110,8 @@ final class DependencyContainer {
         // storage, caching and background work). Mirrors the Android app.
         let status = OfflineStatus()
         let connectivity = ConnectivityMonitor()
-        let store = LocalLibraryStore()
-        let outbox = PendingActionQueue { count in
-            Task { @MainActor in status.pendingChanges = count }
-        }
-        let memoryCache = LibraryMemoryCache()
-        let libraryRepository = OfflineFirstLibraryRepository(
-            videosAPI: videosAPI,
-            foldersAPI: APIFolderRepository(client: client),
-            playbackAPI: APIVideoPlaybackRepository(client: client),
-            store: store,
-            queue: outbox,
-            memory: memoryCache,
-            isOnline: { connectivity.isOnline },
-            networkType: { NetworkContextMonitor.shared.current }
-        )
-        let syncManager = SyncManager(queue: outbox) { action in
-            try await videosAPI.replay(action)
-        } onSynced: {
-            status.syncRevision += 1
-        }
+        let session = AppSession(isRestoringSession: true)
+        let folderSuggestionCache = FolderSuggestionCache()
         let userRepository = OfflineUserRepository(
             remote: APIUserRepository(client: api),
             defaults: UserDefaults(suiteName: "centralia.offline.profile") ?? .standard
@@ -100,27 +121,27 @@ final class DependencyContainer {
             defaults: UserDefaults(suiteName: "centralia.offline.search") ?? .standard
         )
 
-        // Every time the phone comes back online, send what was queued.
+        let libraryRepository = makeOfflineLibrary(
+            videos: videosAPI,
+            folders: APIFolderRepository(client: client),
+            playback: APIVideoPlaybackRepository(client: client),
+            directory: LocalLibraryStore.defaultDirectory,
+            status: status,
+            session: session,
+            replayVideo: { try await videosAPI.replay($0) },
+            onSignOut: { [weak session] in
+                userRepository.clear()
+                searchHistoryRepository.clear()
+                CoverImageLoader.shared.clear()
+                if let accountID = session?.authenticatedUserID {
+                    Task { await folderSuggestionCache.clear(for: accountID) }
+                }
+            }
+        )
+
         connectivity.onChange = { online in
             status.isOnline = online
-            if online { syncManager.requestSync() }
-        }
-        Task {
-            await outbox.refreshCount()
-            syncManager.requestSync()
-        }
-
-        let session = AppSession(isRestoringSession: true)
-        // Signing out removes this user's offline copy from the phone.
-        session.onSignOut = {
-            memoryCache.clear()
-            userRepository.clear()
-            searchHistoryRepository.clear()
-            CoverImageLoader.shared.clear()
-            Task {
-                await store.clear()
-                await outbox.clear()
-            }
+            status.retrySync()
         }
 
         let container = DependencyContainer(
@@ -130,6 +151,7 @@ final class DependencyContainer {
             analyticsRepository: APIAnalyticsRepository(client: api),
             folderRepository: libraryRepository,
             searchHistoryRepository: searchHistoryRepository,
+            folderSuggestionCache: folderSuggestionCache,
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
                 videoRepository: libraryRepository,
@@ -142,5 +164,83 @@ final class DependencyContainer {
         )
         container.backgroundServices = [connectivity]
         return container
+    }
+
+    private static func makeOfflineLibrary(
+        videos: any VideoItemRepository,
+        folders: any FolderRepository,
+        playback: any VideoPlaybackRepository,
+        directory: URL,
+        status: OfflineStatus,
+        session: AppSession,
+        replayVideo: @escaping @Sendable (PendingAction) async throws -> Void,
+        onSignOut: @escaping () -> Void = {}
+    ) -> OfflineFirstLibraryRepository {
+        let store = LocalLibraryStore(directory: directory)
+        let outbox = PendingActionQueue(directory: directory) { [weak status] actions, revision in
+            Task { @MainActor in status?.updateOutbox(actions, revision: revision) }
+        }
+        let memory = LibraryMemoryCache()
+        let library = OfflineFirstLibraryRepository(
+            videosAPI: videos,
+            foldersAPI: folders,
+            playbackAPI: playback,
+            store: store,
+            queue: outbox,
+            memory: memory,
+            isOnline: { [weak status] in status?.isOnline == true },
+            networkType: { NetworkContextMonitor.shared.current },
+            currentAccountID: { [weak session] in session?.authenticatedUserID },
+            onFolderChange: { [weak status] folders, account in status?.updateFolders(folders, for: account) },
+            onRenameQueued: { [weak status] rename in
+                status?.clearRenameNotice(for: rename.folderID)
+                status?.retrySync()
+            }
+        )
+        let sync = SyncManager(
+            queue: outbox,
+            canSend: { [weak status, weak session] action in
+                guard status?.isOnline == true, let account = session?.authenticatedUserID else { return false }
+                return (action.folderRename?.userID ?? account) == account
+            },
+            send: { action in
+                if let rename = action.folderRename {
+                    try await library.replayFolderRename(rename, queuedAt: action.queuedAt)
+                } else {
+                    try await replayVideo(action)
+                }
+            },
+            onRenameSettled: { [weak status, weak session] rename, notice in
+                await library.publishFolders(for: rename.userID)
+                let stillPending = await outbox.all().contains {
+                    $0.folderRename?.userID == rename.userID && $0.folderRename?.folderID == rename.folderID
+                }
+                if !stillPending {
+                    status?.reportRename(rename, notice: notice)
+                    if notice == .folderRemoved, session?.authenticatedUserID == rename.userID {
+                        status?.syncRevision += 1
+                    }
+                }
+            },
+            onSynced: { [weak status] in status?.syncRevision += 1 }
+        )
+        status.requestSync = { sync.requestSync() }
+        session.onAuthenticated = { [weak status] account in
+            status?.activate(accountID: account)
+            Task { @MainActor in
+                await outbox.publishState()
+                status?.retrySync()
+            }
+        }
+        session.onSignOut = { [weak status] in
+            status?.activate(accountID: nil)
+            memory.clear()
+            onSignOut()
+            Task {
+                await store.clear()
+                await outbox.clear()
+            }
+        }
+        return library
     }
 }

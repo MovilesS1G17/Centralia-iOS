@@ -15,6 +15,7 @@ final class SaveVideoViewModel {
     private let folderRepository: any FolderRepository
     private let analytics: any AnalyticsTracking
     private var hasTrackedScreen = false
+    private var hasExplicitFolderSelection = false
 
     private(set) var analysisState: AnalysisState = .idle
     private(set) var metadata: ImportedVideoMetadata?
@@ -98,6 +99,7 @@ final class SaveVideoViewModel {
     func loadFolders() async {
         do {
             folders = try await folderRepository.folders()
+            selectSuggestedFolderIfNeeded()
         } catch {
             folderFailureMessage = FeatureError.message(for: error)
             reportError(error)
@@ -125,7 +127,7 @@ final class SaveVideoViewModel {
             metadata = nil
             suggestedTags = []
             suggestedFolderName = nil
-            selectedFolderID = nil
+            if !hasExplicitFolderSelection { selectedFolderID = nil }
             selectedTags = []
 
             guard let sourceURL = URL(string: source) else {
@@ -155,9 +157,7 @@ final class SaveVideoViewModel {
             let folderName = try? await pipeline.suggestFolder(for: extractedMetadata, tags: generatedTags)
             try ensureCurrent(source)
             suggestedFolderName = folderName
-            selectedFolderID = folders.first {
-                $0.name.localizedCaseInsensitiveCompare(folderName ?? "") == .orderedSame
-            }?.id
+            selectSuggestedFolderIfNeeded()
 
             analysisState = .ready
         } catch is CancellationError {
@@ -186,11 +186,12 @@ final class SaveVideoViewModel {
                 named: name,
                 symbolName: symbol.rawValue
             )
+            folders.removeAll { $0.id == folder.id }
             folders.append(folder)
             folders.sort {
                 $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
-            selectedFolderID = folder.id
+            selectFolder(folder.id)
             return folder
         } catch {
             folderFailureMessage = FeatureError.message(for: error)
@@ -199,12 +200,24 @@ final class SaveVideoViewModel {
         }
     }
 
+    func selectFolder(_ id: UUID?) {
+        hasExplicitFolderSelection = true
+        selectedFolderID = id
+    }
+
+    private func selectSuggestedFolderIfNeeded() {
+        guard !hasExplicitFolderSelection else { return }
+        selectedFolderID = folders.first {
+            $0.name.localizedCaseInsensitiveCompare(suggestedFolderName ?? "") == .orderedSame
+        }?.id
+    }
+
     /// Selects the suggested folder, creating it with its matching symbol when needed.
     func applySmartFolderSuggestion() async {
         guard let suggestion = smartFolderSuggestion else { return }
 
         if let existingFolderID = suggestion.existingFolderID {
-            selectedFolderID = existingFolderID
+            selectFolder(existingFolderID)
         } else {
             _ = await createFolder(named: suggestion.folderName, symbol: suggestion.symbol)
         }
@@ -241,22 +254,10 @@ final class SaveVideoViewModel {
         defer { isSaving = false }
 
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let video = VideoItem(
-            id: UUID(),
-            sourceURL: metadata.sourceURL,
-            platform: metadata.platform,
-            creator: metadata.creator,
-            durationSeconds: metadata.durationSeconds,
-            sourceCaption: metadata.sourceCaption,
-            transcript: metadata.transcript,
-            extractedOnScreenText: metadata.extractedOnScreenText,
-            generatedSummary: metadata.generatedSummary,
-            customTitle: nil,
+        let video = metadata.makeVideo(
             folderID: organized ? selectedFolderID : nil,
             tags: TagCatalog.normalize(selectedTags),
-            note: trimmedNote.isEmpty ? nil : trimmedNote,
-            savedAt: Date(),
-            analysisStatus: .completed
+            note: trimmedNote.isEmpty ? nil : trimmedNote
         )
 
         do {
@@ -290,7 +291,7 @@ final class SaveVideoViewModel {
         metadata = nil
         suggestedTags = []
         suggestedFolderName = nil
-        selectedFolderID = nil
+        if !hasExplicitFolderSelection { selectedFolderID = nil }
         selectedTags = []
         folderSelectionError = nil
     }

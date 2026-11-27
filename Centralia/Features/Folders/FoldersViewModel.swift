@@ -84,6 +84,7 @@ final class FoldersViewModel {
                 named: name,
                 symbolName: symbol.rawValue
             )
+            folders.removeAll { $0.id == folder.id }
             folders.append(folder)
             folders.sort {
                 $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
@@ -105,6 +106,8 @@ final class FoldersViewModel {
         state = .idle
         await load()
     }
+
+    func applyFolderSnapshot(_ updated: [LibraryFolder]) { folders = updated }
 
     func dismissFailure() {
         failureMessage = nil

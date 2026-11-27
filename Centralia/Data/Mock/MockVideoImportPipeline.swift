@@ -82,6 +82,11 @@ struct MockVideoImportPipeline: VideoImportPipeline {
         tags: [String]
     ) async throws -> String? {
         try await pause()
+        if let known = Self.fixtures.first(where: {
+            $0.platform == metadata.platform && $0.creator == metadata.creator && $0.summary == metadata.generatedSummary
+        }) {
+            return known.suggestedFolder
+        }
         return fixture(for: metadata.sourceURL, platform: metadata.platform).suggestedFolder
     }
 

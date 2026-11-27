@@ -42,7 +42,8 @@ final class SearchViewModel {
     }
 
     var filteredVideos: [VideoItem] {
-        VideoSearch.filter(
+        guard !selectedFolderIsUnavailable else { return [] }
+        return VideoSearch.filter(
             videos,
             criteria: criteria,
             folderNames: Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0.name) })
@@ -59,11 +60,11 @@ final class SearchViewModel {
         TagCatalog.available(from: videos)
     }
 
-    var hasActiveFilters: Bool {
-        selectedPlatform != nil
-            || selectedCreator != nil
-            || selectedFolder != .all
-            || !selectedTags.isEmpty
+    var hasActiveFilters: Bool { criteria.hasFilters }
+
+    var selectedFolderIsUnavailable: Bool {
+        guard state == .loaded, case let .folder(id) = selectedFolder else { return false }
+        return folderName(for: id) == nil
     }
 
     init(
@@ -136,6 +137,17 @@ final class SearchViewModel {
         query = search
         await submitSearch()
     }
+
+    func applySavedSearch(_ search: SavedSearch) {
+        let criteria = search.criteria
+        query = criteria.text
+        selectedPlatform = criteria.platform
+        selectedCreator = criteria.creator
+        selectedFolder = criteria.folder
+        selectedTags = criteria.tags
+    }
+
+    func applyFolderSnapshot(_ updated: [LibraryFolder]) { folders = updated }
 
     func clearRecentSearches() async {
         do {

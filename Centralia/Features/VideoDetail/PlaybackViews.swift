@@ -18,6 +18,10 @@ struct StreamPlayerView: View {
                 VideoPlayer(player: player)
                     .onAppear { player.play() }
                     .onDisappear { player.pause() }
+                    .onReceive(NotificationCenter.default.publisher(
+                        for: AVPlayerItem.failedToPlayToEndTimeNotification,
+                        object: player.currentItem
+                    )) { _ in failed() }
             } else {
                 Color.black
             }
@@ -41,14 +45,9 @@ struct StreamPlayerView: View {
             return
         }
         for await status in item.publisher(for: \.status).values {
-            switch status {
-            case .failed:
+            if status == .failed {
                 failed()
                 return
-            case .readyToPlay:
-                return
-            default:
-                continue
             }
         }
     }
@@ -76,9 +75,7 @@ struct EmbedPlayerView: UIViewRepresentable {
         view.backgroundColor = .clear
 
         if PlaybackURLPolicy.isAllowed(url) {
-            var request = URLRequest(url: url)
-            request.setValue("https://co.edu.uniandes.centralia", forHTTPHeaderField: "Referer")
-            view.load(request)
+            view.load(Self.embedRequest(for: url, bundleID: Bundle.main.bundleIdentifier))
         } else {
             let failed = failed
             DispatchQueue.main.async { failed() }
@@ -87,6 +84,18 @@ struct EmbedPlayerView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {}
+
+    static func embedRequest(for url: URL, bundleID: String?) -> URLRequest {
+        var request = URLRequest(url: url)
+        // YouTube uses the app's identity when its player is loaded directly in a web view.
+        if let host = url.host?.lowercased(),
+           ["www.youtube.com", "www.youtube-nocookie.com"].contains(host),
+           url.scheme == "https", url.path.hasPrefix("/embed/"),
+           let bundleID, !bundleID.isEmpty {
+            request.setValue("https://\(bundleID.lowercased())", forHTTPHeaderField: "Referer")
+        }
+        return request
+    }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         private let embedHost: String?
@@ -103,6 +112,25 @@ struct EmbedPlayerView: UIViewRepresentable {
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
             decisionHandler(allows(navigationAction) ? .allow : .cancel)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+        ) {
+            if navigationResponse.isForMainFrame,
+               let response = navigationResponse.response as? HTTPURLResponse,
+               response.statusCode >= 400 {
+                decisionHandler(.cancel)
+                failed()
+            } else {
+                decisionHandler(.allow)
+            }
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            failed()
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -132,7 +160,8 @@ struct EmbedPlayerView: UIViewRepresentable {
 
         private func reportIfFatal(_ error: Error) {
             // A cancelled load is what blocking a navigation produces.
-            guard (error as NSError).code != NSURLErrorCancelled else { return }
+            let error = error as NSError
+            guard error.domain != NSURLErrorDomain || error.code != NSURLErrorCancelled else { return }
             failed()
         }
     }

@@ -66,10 +66,29 @@ extension Color {
     static let centraliaSoftSurface = Color("SoftSurface")
     static let centraliaDivider = Color("Divider")
     static let centraliaSecondaryText = Color("SecondaryText")
+    static let centraliaError = Color(red: 180.0 / 255, green: 35.0 / 255, blue: 24.0 / 255)
     static let centraliaVideoSand = Color("VideoSand")
     static let centraliaVideoMint = Color("VideoMint")
     static let centraliaVideoClay = Color("VideoClay")
     static let centraliaVideoLavender = Color("VideoLavender")
+    static let centraliaVideoMetadata = Color.centraliaInk.opacity(0.78)
+}
+
+extension SecureField where Label == Text {
+    init(centralia title: LocalizedStringKey, text: Binding<String>) {
+        self.init(title, text: text, prompt: Text(title).foregroundStyle(Color.centraliaSecondaryText))
+    }
+}
+
+extension TextField where Label == Text {
+    init(centralia title: LocalizedStringKey, text: Binding<String>, axis: Axis = .horizontal) {
+        self.init(
+            title,
+            text: text,
+            prompt: Text(title).foregroundStyle(Color.centraliaSecondaryText),
+            axis: axis
+        )
+    }
 }
 
 struct CentraliaPressStyle: ButtonStyle {
@@ -80,5 +99,19 @@ struct CentraliaPressStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.78 : 1)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+struct CentraliaProminentButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.white)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, CentraliaTheme.Spacing.medium)
+            .padding(.vertical, CentraliaTheme.Spacing.small)
+            .frame(minHeight: 44)
+            .background(Color.centraliaInk, in: Capsule())
+            .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }

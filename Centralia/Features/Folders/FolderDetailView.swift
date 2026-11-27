@@ -1,15 +1,20 @@
 import SwiftUI
 
 struct FolderDetailView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.offlineLibraryStatus) private var offlineStatus
+
     @Environment(\.dismiss) private var dismiss
 
     @State private var viewModel: FolderDetailViewModel
-    @State private var selectedVideo: VideoItem?
+    @State private var selectedVideo: VideoDetailRoute?
     @State private var movingVideo: VideoItem?
     @State private var pendingDeletion: VideoItem?
     @State private var showsRenameFolder = false
     @State private var showsTagFilter = false
     @State private var showsDeleteFolderConfirmation = false
+    @State private var pdfExport = FolderPDFExport()
+    @State private var previewedPDF: FolderPDFFile?
     @FocusState private var searchIsFocused: Bool
 
     private let videoRepository: any VideoItemRepository
@@ -45,6 +50,7 @@ struct FolderDetailView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: CentraliaTheme.Spacing.large) {
                 header
+                renameStatus
                 searchField
                 sourceFilters
                 content
@@ -59,18 +65,31 @@ struct FolderDetailView: View {
         .scrollIndicators(.hidden)
         .background(Color.centraliaCanvas.ignoresSafeArea())
         .foregroundStyle(Color.centraliaInk)
-        .toolbar(.hidden, for: .navigationBar)
-        .task {
-            viewModel.trackScreenViewed()
-            await viewModel.load()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            FolderPDFExportStatus(
+                state: pdfExport.state,
+                preview: { previewedPDF = $0 },
+                retry: exportFolderPDF,
+                dismiss: pdfExport.dismiss
+            )
         }
-        .navigationDestination(item: $selectedVideo) { video in
+        .toolbar(.hidden, for: .navigationBar)
+        .task(id: offlineStatus?.syncRevision) {
+            viewModel.trackScreenViewed()
+            if let revision = offlineStatus?.syncRevision, revision > 0 { await viewModel.retry() }
+            else { await viewModel.load() }
+        }
+        .onChange(of: offlineStatus?.folderSnapshot) { _, folders in
+            if let folders { viewModel.applyFolderSnapshot(folders) }
+        }
+        .navigationDestination(item: $selectedVideo) { route in
             VideoDetailView(
-                video: video,
+                video: route.video,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
                 playbackRepository: playbackRepository,
                 analytics: analytics,
+                startsPlaying: route.startsPlaying,
                 videoChanged: { updatedVideo in
                     viewModel.apply(updatedVideo)
                     folderChanged()
@@ -91,12 +110,18 @@ struct FolderDetailView: View {
             }
         }
         .sheet(isPresented: $showsRenameFolder) {
-            FolderRenameSheet(viewModel: viewModel) {
+            FolderRenameSheet(
+                viewModel: viewModel,
+                willSyncLater: offlineStatus?.isOnline == false || hasPendingRename
+            ) {
                 folderChanged()
             }
         }
         .sheet(isPresented: $showsTagFilter) {
             FolderTagsSheet(viewModel: viewModel)
+        }
+        .sheet(item: $previewedPDF) { file in
+            FolderPDFPreview(file: file)
         }
         .confirmationDialog(
             "Remove this short from your library?",
@@ -135,6 +160,17 @@ struct FolderDetailView: View {
         } message: {
             Text(viewModel.failureMessage ?? "Please try again.")
         }
+        .alert(
+            "Folder no longer available",
+            isPresented: Binding(
+                get: { renameNotice == .folderRemoved },
+                set: { if !$0 { offlineStatus?.clearRenameNotice(for: viewModel.folder.id) } }
+            )
+        ) {
+            Button("Go Back") { dismiss() }
+        } message: {
+            Text("The folder was deleted before the rename could sync. Its shorts are available in Unorganized.")
+        }
         .overlay {
             if viewModel.recentlyDeletedVideo != nil {
                 // Shake to undo: the pop-up the backend sent with the delete.
@@ -155,6 +191,56 @@ struct FolderDetailView: View {
         .animation(.easeOut(duration: 0.18), value: viewModel.recentlyDeletedVideo?.id)
     }
 
+    private var hasPendingRename: Bool { offlineStatus?.pendingFolderIDs.contains(viewModel.folder.id) == true }
+    private var renameNotice: FolderRenameNotice? { offlineStatus?.folderRenameNotices[viewModel.folder.id] }
+
+    @ViewBuilder
+    private var renameStatus: some View {
+        if hasPendingRename {
+            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.xSmall) {
+                Label("Pending sync", systemImage: "clock")
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("folderRenamePending")
+                if offlineStatus?.isOnline == true {
+                    Button("Retry Sync") { offlineStatus?.retrySync() }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                        .buttonStyle(CentraliaPressStyle())
+                } else {
+                    Text("The name will sync when you’re back online.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.centraliaSecondaryText)
+                }
+            }
+            .padding(CentraliaTheme.Spacing.medium)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 16))
+        } else if let renameNotice, renameNotice != .folderRemoved {
+            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.small) {
+                Label("Rename couldn’t sync", systemImage: "exclamationmark.circle")
+                    .font(.subheadline.weight(.semibold))
+                Text(renameNotice == .nameTaken
+                     ? "Another folder already uses that name. Choose a new name to try again."
+                     : "Centralia restored the last confirmed name. You can try renaming this folder again.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.centraliaSecondaryText)
+                Button("Rename Folder", action: openRename)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(minHeight: 44)
+                    .buttonStyle(CentraliaPressStyle())
+            }
+            .padding(CentraliaTheme.Spacing.medium)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 16))
+            .accessibilityIdentifier("folderRenameRejected")
+        }
+    }
+
+    private func openRename() {
+        offlineStatus?.clearRenameNotice(for: viewModel.folder.id)
+        showsRenameFolder = true
+    }
+
     private var header: some View {
         HStack(spacing: CentraliaTheme.Spacing.small) {
             Button("Back", systemImage: "chevron.left") {
@@ -168,16 +254,18 @@ struct FolderDetailView: View {
 
             Text(viewModel.folder.name)
                 .font(CentraliaTheme.Typography.display)
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: 0)
 
             Menu {
-                Button("Rename Folder", systemImage: "pencil") {
-                    showsRenameFolder = true
-                }
+                Button("Export Folder as PDF", systemImage: "doc.richtext", action: exportFolderPDF)
+                    .disabled(viewModel.videos.isEmpty || pdfExport.isRendering)
+                    .accessibilityIdentifier("folderDetailExportPDF")
+
+                Button("Rename Folder", systemImage: "pencil", action: openRename)
                 Button("Delete Folder", systemImage: "trash", role: .destructive) {
                     showsDeleteFolderConfirmation = true
                 }
@@ -199,7 +287,7 @@ struct FolderDetailView: View {
                 .foregroundStyle(Color.centraliaSecondaryText)
                 .accessibilityHidden(true)
 
-            TextField("Search in \(viewModel.folder.name)", text: $viewModel.query)
+            TextField(centralia: "Search in \(viewModel.folder.name)", text: $viewModel.query)
                 .font(.body)
                 .focused($searchIsFocused)
                 .submitLabel(.search)
@@ -296,8 +384,7 @@ struct FolderDetailView: View {
                 Button("Try Again") {
                     Task { await viewModel.retry() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
             }
             .frame(maxWidth: .infinity, minHeight: 320)
 
@@ -312,8 +399,7 @@ struct FolderDetailView: View {
                 } actions: {
                     if hasActiveFilters {
                         Button("Clear Filters") { clearFilters() }
-                            .buttonStyle(.borderedProminent)
-                            .tint(Color.centraliaInk)
+                            .buttonStyle(CentraliaProminentButtonStyle())
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: 260)
@@ -350,15 +436,17 @@ struct FolderDetailView: View {
     private var videoGrid: some View {
         let videos = viewModel.filteredVideos
         return LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
-            ],
+            columns: Array(
+                repeating: GridItem(.flexible(), spacing: 12),
+                count: dynamicTypeSize.isAccessibilitySize ? 1 : 2
+            ),
             spacing: 12
         ) {
             ForEach(Array(videos.enumerated()), id: \.element.id) { index, video in
                 FolderDetailVideoCard(video: video, styleIndex: index) {
-                    selectedVideo = video
+                    selectedVideo = VideoDetailRoute(video: video)
+                } play: {
+                    selectedVideo = VideoDetailRoute(video: video, startsPlaying: true)
                 } requestMove: {
                     movingVideo = video
                 } requestDelete: {
@@ -403,7 +491,7 @@ struct FolderDetailView: View {
 
     private var failureBinding: Binding<Bool> {
         Binding(
-            get: { viewModel.failureMessage != nil },
+            get: { !showsRenameFolder && viewModel.failureMessage != nil },
             set: { isPresented in
                 if !isPresented { viewModel.dismissFailure() }
             }
@@ -415,16 +503,24 @@ struct FolderDetailView: View {
         viewModel.selectedSourceFilter = .all
         viewModel.selectedTags = []
     }
+
+    private func exportFolderPDF() {
+        searchIsFocused = false
+        pdfExport.start(folder: viewModel.folder, videos: viewModel.videos)
+    }
 }
 
 private struct FolderDetailVideoCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let video: VideoItem
     let styleIndex: Int
     let open: () -> Void
+    let play: () -> Void
     let requestMove: () -> Void
     let requestDelete: () -> Void
 
-    private let cardHeight: CGFloat = 270
+    @ScaledMetric(relativeTo: .body) private var previewHeight: CGFloat = 197
 
     private var cardColor: Color {
         [
@@ -436,19 +532,49 @@ private struct FolderDetailVideoCard: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            preview
+
+            ZStack(alignment: .bottomTrailing) {
+                Button(action: open) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(video.displayTitle)
+                            .font(.subheadline.weight(.bold))
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+
+                        Text(video.creatorDisplayName)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.centraliaVideoMetadata)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                            .padding(.trailing, 36)
+                    }
+                    .multilineTextAlignment(.leading)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, minHeight: 73, alignment: .bottomLeading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                actionsMenu
+            }
+        }
+        .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("folderVideoCard.\(video.id.uuidString)")
+    }
+
+    private var preview: some View {
         ZStack {
             Button(action: open) {
                 ZStack {
                     cardColor
                     if video.coverURL != nil {
-                        ZStack {
-                            VideoCoverImage(url: video.coverURL)
-                            VideoCoverGradient()
-                        }
-                        .padding(.bottom, 72)
+                        VideoCoverImage(url: video.coverURL)
+                        VideoCoverGradient()
                     }
                 }
-                .contentShape(RoundedRectangle(cornerRadius: 24))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(video.displayTitle)")
@@ -463,7 +589,7 @@ private struct FolderDetailVideoCard: View {
                 .padding(12)
                 .accessibilityHidden(true)
 
-            Button(action: open) {
+            Button(action: play) {
                 Image(systemName: "play.fill")
                     .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
@@ -471,7 +597,7 @@ private struct FolderDetailVideoCard: View {
                     .background(Color.centraliaInk.opacity(0.92), in: Circle())
             }
             .buttonStyle(CentraliaPressStyle())
-            .accessibilityLabel("Open \(video.displayTitle)")
+            .accessibilityLabel("Play \(video.displayTitle)")
 
             Text(video.formattedDuration)
                 .font(.caption.weight(.semibold))
@@ -481,51 +607,34 @@ private struct FolderDetailVideoCard: View {
                 .background(Color.centraliaInk.opacity(0.84), in: Capsule())
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(12)
-                .padding(.bottom, 61)
                 .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(video.displayTitle)
-                    .font(.subheadline.weight(.bold))
-                    .lineLimit(2)
-                Text(video.creatorDisplayName)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Color.centraliaSecondaryText)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .padding(12)
-            .padding(.trailing, 28)
-            .allowsHitTesting(false)
-
-            Menu {
-                Button("Move to Folder", systemImage: "folder") { requestMove() }
-                ShareLink(
-                    item: video.sourceURL,
-                    subject: Text(video.displayTitle),
-                    message: Text("\(video.displayTitle) — \(video.creatorDisplayName)")
-                ) {
-                    Label("Share Link", systemImage: "square.and.arrow.up")
-                }
-                Divider()
-                Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                    requestDelete()
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.bold))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .tint(Color.centraliaSecondaryText)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .padding(3)
-            .accessibilityLabel("More actions for \(video.displayTitle)")
         }
-        .frame(height: cardHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("folderVideoCard.\(video.id.uuidString)")
+        .frame(height: previewHeight)
+    }
+
+    private var actionsMenu: some View {
+        Menu {
+            Button("Move to Folder", systemImage: "folder") { requestMove() }
+            ShareLink(
+                item: video.sourceURL,
+                subject: Text(video.displayTitle),
+                message: Text("\(video.displayTitle) — \(video.creatorDisplayName)")
+            ) {
+                Label("Share Link", systemImage: "square.and.arrow.up")
+            }
+            Divider()
+            Button("Remove from Library", systemImage: "trash", role: .destructive) {
+                requestDelete()
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.bold))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .tint(Color.centraliaVideoMetadata)
+        .padding(3)
+        .accessibilityLabel("More actions for \(video.displayTitle)")
     }
 }
 
@@ -533,50 +642,58 @@ private struct FolderRenameSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: FolderDetailViewModel
     @State private var name = ""
+    @State private var isSaving = false
     @FocusState private var nameIsFocused: Bool
 
+    let willSyncLater: Bool
     let renamed: () -> Void
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
-                Text("Rename this collection without changing its saved shorts.")
-                    .font(.body)
-                    .foregroundStyle(Color.centraliaSecondaryText)
+            ScrollView {
+                VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
+                    Text(willSyncLater
+                         ? "The new name will appear here and sync when you’re back online."
+                         : "Rename this collection without changing its saved shorts.")
+                        .font(.body)
+                        .foregroundStyle(Color.centraliaSecondaryText)
 
-                TextField("Folder name", text: $name)
-                    .focused($nameIsFocused)
-                    .submitLabel(.done)
-                    .textInputAutocapitalization(.words)
-                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                    .frame(minHeight: 56)
-                    .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.centraliaDivider, lineWidth: 1)
+                    TextField(centralia: "Folder name", text: $name)
+                        .focused($nameIsFocused)
+                        .submitLabel(.done)
+                        .textInputAutocapitalization(.words)
+                        .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                        .frame(minHeight: 56)
+                        .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.centraliaDivider, lineWidth: 1)
+                        }
+                        .onSubmit(save)
+                        .disabled(isSaving)
+                        .accessibilityIdentifier("renameFolderNameField")
+
+                    if let message = viewModel.failureMessage {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(Color.centraliaError)
                     }
-                    .onSubmit(save)
-                    .accessibilityIdentifier("renameFolderNameField")
-
-                if let message = viewModel.failureMessage {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
                 }
-
-                Spacer()
+                .padding(CentraliaTheme.Spacing.medium)
             }
-            .padding(CentraliaTheme.Spacing.medium)
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.centraliaCanvas.ignoresSafeArea())
             .navigationTitle("Rename Folder")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save)
-                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(isSaving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("saveFolderRename")
                 }
             }
             .onAppear {
@@ -585,11 +702,15 @@ private struct FolderRenameSheet: View {
             }
             .onDisappear { viewModel.dismissFailure() }
         }
-        .presentationDetents([.height(300)])
+        .interactiveDismissDisabled(isSaving)
+        .presentationDetents([.medium, .large])
     }
 
     private func save() {
+        guard !isSaving, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        isSaving = true
         Task {
+            defer { isSaving = false }
             guard await viewModel.renameFolder(to: name) else { return }
             renamed()
             dismiss()

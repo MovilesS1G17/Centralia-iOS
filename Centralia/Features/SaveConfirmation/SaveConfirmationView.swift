@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct SaveConfirmationView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     @State private var viewModel: SaveConfirmationViewModel
     @State private var showsNoteEditor = false
     @State private var showsVideoDetail = false
@@ -119,7 +121,11 @@ struct SaveConfirmationView: View {
     }
 
     private var videoSummary: some View {
-        HStack(alignment: .top, spacing: CentraliaTheme.Spacing.medium) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: CentraliaTheme.Spacing.medium))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: CentraliaTheme.Spacing.medium))
+
+        return layout {
             ZStack {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(thumbnailColor)
@@ -140,7 +146,6 @@ struct SaveConfirmationView: View {
 
                 Text(viewModel.video.creatorDisplayName)
                     .font(.title3.weight(.bold))
-                    .lineLimit(2)
 
                 Label(
                     folderName ?? "No Folder Select",
@@ -162,7 +167,6 @@ struct SaveConfirmationView: View {
                                 .overlay {
                                     Capsule().stroke(Color.centraliaDivider, lineWidth: 1)
                                 }
-                                .fixedSize(horizontal: true, vertical: false)
                                 .accessibilityIdentifier("saveConfirmationTag_\(tag)")
                         }
                     }
@@ -252,18 +256,10 @@ private struct SaveConfirmationNoteSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
-                Text("Personal note")
-                    .font(.headline)
-
-                ZStack(alignment: .topLeading) {
-                    if note.isEmpty {
-                        Text("Why is this short worth remembering?")
-                            .foregroundStyle(Color.centraliaSecondaryText)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 17)
-                            .allowsHitTesting(false)
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.medium) {
+                    Text("Personal note")
+                        .font(.headline)
 
                     TextEditor(text: $note)
                         .focused($noteIsFocused)
@@ -272,16 +268,25 @@ private struct SaveConfirmationNoteSheet: View {
                         .frame(minHeight: 180)
                         .accessibilityLabel("Personal note")
                         .accessibilityIdentifier("confirmationNoteField")
+                        .overlay(alignment: .topLeading) {
+                            if note.isEmpty {
+                                Text("Why is this short worth remembering?")
+                                    .foregroundStyle(Color.centraliaSecondaryText)
+                                    .padding(.horizontal, 18)
+                                    .padding(.vertical, 17)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.centraliaDivider, lineWidth: 1)
+                        }
                 }
-                .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 16))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.centraliaDivider, lineWidth: 1)
-                }
-
-                Spacer()
+                .padding(CentraliaTheme.Spacing.medium)
             }
-            .padding(CentraliaTheme.Spacing.medium)
+            .scrollDismissesKeyboard(.interactively)
             .background(Color.centraliaCanvas.ignoresSafeArea())
             .navigationTitle("Add Note")
             .navigationBarTitleDisplayMode(.inline)

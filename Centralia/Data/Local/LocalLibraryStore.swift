@@ -40,14 +40,26 @@ actor LocalLibraryStore {
         let updated = transform(read())
         cached = updated
         do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            try encoder.encode(updated).write(to: fileURL, options: [.atomic, .completeFileProtection])
+            try persist(updated)
         } catch {
             // The in-memory copy still works; the next write tries again.
         }
         return updated
+    }
+
+    @discardableResult
+    func updatePersisted(_ transform: @Sendable (Snapshot) -> Snapshot) throws -> Snapshot {
+        let updated = transform(read())
+        try persist(updated)
+        cached = updated
+        return updated
+    }
+
+    private func persist(_ snapshot: Snapshot) throws {
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try encoder.encode(snapshot).write(to: fileURL, options: [.atomic, .completeFileProtection])
     }
 
     func clear() {

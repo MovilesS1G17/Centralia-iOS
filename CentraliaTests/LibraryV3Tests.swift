@@ -622,9 +622,10 @@ struct SaveScreenStateTests {
 struct VideoPlaybackTests {
     private func makeViewModel(
         _ result: Result<VideoPlayback, Error>?,
-        analytics: RecordingAnalyticsTracking = RecordingAnalyticsTracking()
+        analytics: RecordingAnalyticsTracking = RecordingAnalyticsTracking(),
+        network: NetworkType = .wifi,
+        video: VideoItem = LibraryFixtures.video()
     ) -> (VideoDetailViewModel, ScriptedPlaybackRepository?, VideoItem) {
-        let video = LibraryFixtures.video()
         let library = V3SimulatedLibrary(videos: [video])
         let playback = result.map(ScriptedPlaybackRepository.init)
         let viewModel = VideoDetailViewModel(
@@ -632,7 +633,8 @@ struct VideoPlaybackTests {
             videoRepository: library,
             folderRepository: library,
             playbackRepository: playback,
-            analytics: analytics
+            analytics: analytics,
+            networkType: { network }
         )
         return (viewModel, playback, video)
     }
@@ -750,6 +752,53 @@ struct VideoPlaybackTests {
         #expect(analytics.events.last?.flatProperties["reason"] == "embed_failed")
     }
 
+    @Test func dataSaverOffersTheStandardPlayerWhenTheEmbedFails() async {
+        let (viewModel, repository, video) = makeViewModel(
+            .success(VideoPlayback(streamURL: nil, streamReady: false, expiresAt: nil, embedURL: embed, dataSaver: true))
+        )
+        await viewModel.startPlayback()
+        #expect(viewModel.playbackState == .ready(.embed(embed)))
+        #expect(viewModel.canUseStandardPlayer)
+
+        viewModel.embedFailed()
+        #expect(viewModel.playbackState == .failed(VideoDetailViewModel.playbackUnavailableMessage))
+        #expect(viewModel.canUseStandardPlayer)
+
+        repository?.result = .success(VideoPlayback(streamURL: stream, streamReady: true, expiresAt: nil, embedURL: embed))
+        await viewModel.startPlayback(useStandardPlayer: true)
+        #expect(viewModel.playbackState == .ready(.stream(stream)))
+        #expect(repository?.standardRequestedIDs == [video.id])
+        #expect(!viewModel.canUseStandardPlayer)
+    }
+
+    @Test func cellularCanPlayTheSavedLinkEvenWhenTheCentraliaServerIsUnreachable() async {
+        let sources: [(VideoPlatform, String, String)] = [
+            (.tiktok, "https://www.tiktok.com/@maker/video/123456789", "https://www.tiktok.com/player/v1/123456789?autoplay=1"),
+            (.instagramReel, "https://www.instagram.com/reel/DABcd2/", "https://www.instagram.com/reel/DABcd2/embed/"),
+            (.youtubeShort, "https://www.youtube.com/shorts/Abcdef12345", "https://www.youtube.com/embed/Abcdef12345?autoplay=1&playsinline=1"),
+        ]
+        for (platform, source, embed) in sources {
+            let video = LibraryFixtures.video(url: source, platform: platform)
+            let (viewModel, _, _) = makeViewModel(.failure(APIClientError.networkUnavailable), network: .cellular, video: video)
+            await viewModel.startPlayback()
+            #expect(viewModel.playbackState == .ready(.embed(URL(string: embed)!)))
+        }
+    }
+
+    @Test func aSavedEmbedCanBeUsedWhenASharedLinkNeedsRedirection() async {
+        var video = LibraryFixtures.video(url: "https://vm.tiktok.com/abcd/")
+        video.embedURL = embed
+        let (viewModel, _, _) = makeViewModel(.failure(APIClientError.networkUnavailable), network: .cellular, video: video)
+        await viewModel.startPlayback()
+        #expect(viewModel.playbackState == .ready(.embed(embed)))
+    }
+
+    @Test func noConnectionShowsAnErrorInsteadOfTryingTheSavedLink() async {
+        let (viewModel, _, _) = makeViewModel(.failure(OfflineError.needsConnection("Playing a short")), network: .offline)
+        await viewModel.startPlayback()
+        #expect(viewModel.playbackState == .failed(OfflineError.needsConnection("Playing a short").localizedDescription))
+    }
+
     @Test func playbackCanBeRetriedAndClosed() async {
         let (viewModel, repository, _) = makeViewModel(.failure(URLError(.notConnectedToInternet)))
         await viewModel.startPlayback()
@@ -789,6 +838,23 @@ struct ImportFlowTests {
         let saved = await model.save(organized: true)
         #expect(saved?.folderID == folder.id)
         #expect(library.storedVideos.count == 1)
+    }
+
+    @Test func aNewlyCreatedFolderRemainsSelectedWhenTheLinkIsAnalyzed() async throws {
+        let suggested = LibraryFolder(id: UUID(), name: "Suggested", symbolName: "folder")
+        let library = V3SimulatedLibrary(folders: [suggested])
+        library.suggestedFolderName = suggested.name
+        let model = model(library)
+        await model.loadFolders()
+        let created = await model.createFolder(named: "My folder")
+        let folder = try #require(created)
+
+        await model.analyzeURL(after: .zero)
+        #expect(model.selectedFolderID == folder.id)
+
+        let saved = await model.save(organized: true)
+        #expect(saved?.folderID == folder.id)
+        #expect(library.storedVideos.first?.folderID == folder.id)
     }
 
     @Test func tagAndFolderSuggestionFailuresDoNotBlockSaving() async {

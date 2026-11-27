@@ -18,21 +18,28 @@ final class CoverImageLoader {
 
     private let memory = NSCache<NSURL, UIImage>()
     private let session: URLSession
+    private nonisolated let responseCache: URLCache
 
     init() {
         memory.countLimit = 200
         let configuration = URLSessionConfiguration.default
-        configuration.urlCache = URLCache(
+        let responseCache = URLCache(
             memoryCapacity: 10 * 1024 * 1024,
             diskCapacity: 100 * 1024 * 1024,
             directory: URL.cachesDirectory.appending(path: "covers", directoryHint: .isDirectory)
         )
+        self.responseCache = responseCache
+        configuration.urlCache = responseCache
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         session = URLSession(configuration: configuration)
     }
 
     func cachedImage(for url: URL) -> UIImage? {
         memory.object(forKey: url as NSURL)
+    }
+
+    nonisolated func cachedResponseData(for url: URL) -> Data? {
+        responseCache.cachedResponse(for: URLRequest(url: url))?.data
     }
 
     func image(for url: URL) async -> UIImage? {
@@ -46,7 +53,7 @@ final class CoverImageLoader {
 
     func clear() {
         memory.removeAllObjects()
-        session.configuration.urlCache?.removeAllCachedResponses()
+        responseCache.removeAllCachedResponses()
     }
 
     nonisolated private static func decodeInBackground(_ data: Data) async -> UIImage? {

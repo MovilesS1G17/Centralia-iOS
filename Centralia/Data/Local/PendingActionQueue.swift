@@ -10,16 +10,17 @@ import Foundation
 actor PendingActionQueue {
     private let fileURL: URL
     private var actions: [PendingAction]?
-    private let onCountChange: @Sendable (Int) -> Void
+    private let onChange: @Sendable ([PendingAction], Int) -> Void
+    private var revision = 0
     private let encoder = OfflineJSON.encoder()
     private let decoder = OfflineJSON.decoder()
 
     init(
         directory: URL = LocalLibraryStore.defaultDirectory,
-        onCountChange: @escaping @Sendable (Int) -> Void = { _ in }
+        onChange: @escaping @Sendable ([PendingAction], Int) -> Void = { _, _ in }
     ) {
         fileURL = directory.appending(path: "outbox.json")
-        self.onCountChange = onCountChange
+        self.onChange = onChange
     }
 
     func all() -> [PendingAction] {
@@ -34,28 +35,59 @@ actor PendingActionQueue {
         save(PendingAction.enqueue(action, into: all()))
     }
 
-    func remove(_ action: PendingAction) {
-        save(all().filter { $0 != action })
+    func enqueueFolderRename(_ action: PendingAction) throws {
+        let updated = PendingAction.enqueue(action, into: try readPersisted())
+        try persist(updated)
+        publish(updated)
+    }
+
+    func contains(_ action: PendingAction) -> Bool { all().contains(action) }
+
+    func removeProcessed(_ action: PendingAction) throws -> Bool {
+        let current = all()
+        guard current.contains(action) else { return false }
+        let updated = current.filter { $0 != action }
+        if action.folderRename != nil {
+            try persist(updated)
+            publish(updated)
+        } else {
+            save(updated)
+        }
+        return true
     }
 
     func clear() {
         save([])
     }
 
-    func refreshCount() {
-        onCountChange(all().count)
+    func publishState() {
+        publish(all())
     }
 
     private func save(_ updated: [PendingAction]) {
+        try? persist(updated)
+        publish(updated)
+    }
+
+    private func publish(_ updated: [PendingAction]) {
         actions = updated
+        revision += 1
+        onChange(updated, revision)
+    }
+
+    private func readPersisted() throws -> [PendingAction] {
         do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            try encoder.encode(updated).write(to: fileURL, options: [.atomic, .completeFileProtection])
-        } catch {
-            // Kept in memory; written again with the next change.
+            let saved = try decoder.decode([PendingAction].self, from: Data(contentsOf: fileURL))
+            return actions ?? saved
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return actions ?? []
         }
-        onCountChange(updated.count)
+    }
+
+    private func persist(_ updated: [PendingAction]) throws {
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try encoder.encode(updated).write(to: fileURL, options: [.atomic, .completeFileProtection])
     }
 }

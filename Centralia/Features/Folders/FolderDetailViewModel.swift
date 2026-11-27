@@ -94,7 +94,7 @@ final class FolderDetailViewModel {
             async let loadedVideos = videoRepository.videos()
             async let loadedFolders = folderRepository.folders()
             videos = try await loadedVideos.filter { $0.folderID == folder.id }
-            folders = try await loadedFolders
+            applyFolderSnapshot(try await loadedFolders)
             reconcileSelectedTags()
             state = .loaded
         } catch {
@@ -106,6 +106,11 @@ final class FolderDetailViewModel {
     func retry() async {
         state = .idle
         await load()
+    }
+
+    func applyFolderSnapshot(_ updated: [LibraryFolder]) {
+        folders = updated
+        if let current = updated.first(where: { $0.id == folder.id }) { folder = current }
     }
 
     func move(_ video: VideoItem, to folderID: UUID?) async {

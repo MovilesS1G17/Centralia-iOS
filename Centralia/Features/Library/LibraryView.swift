@@ -1,15 +1,15 @@
 import SwiftUI
 
 struct LibraryView: View {
+    @Environment(\.offlineLibraryStatus) private var offlineStatus
     private enum Route: Hashable {
-        case video(VideoItem)
+        case video(VideoDetailRoute)
         case folder(LibraryFolder)
     }
 
     @State private var viewModel: LibraryViewModel
     @Binding private var selectedTab: AppTab
     @State private var path: [Route] = []
-    @State private var playingVideoID: UUID?
     @State private var pendingDeletion: VideoItem?
     @State private var movingVideo: VideoItem?
 
@@ -75,9 +75,13 @@ struct LibraryView: View {
                 destination(for: route)
                     .toolbar(.hidden, for: .tabBar)
             }
-            .task {
+            .task(id: offlineStatus?.syncRevision) {
                 viewModel.trackScreenViewed()
-                await viewModel.load()
+                if let revision = offlineStatus?.syncRevision, revision > 0 { await viewModel.retry() }
+                else { await viewModel.load() }
+            }
+            .onChange(of: offlineStatus?.folderSnapshot) { _, folders in
+                if let folders { viewModel.applyFolderSnapshot(folders) }
             }
             .alert("Couldn’t update your library", isPresented: failureBinding) {
                 Button("OK") {
@@ -164,17 +168,17 @@ struct LibraryView: View {
                         await viewModel.retry()
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
             }
             .frame(maxWidth: .infinity, minHeight: 320)
 
         case .loaded:
+            if !viewModel.folders.isEmpty {
+                folderShortcuts
+            }
             if viewModel.videos.isEmpty {
                 emptyLibrary
             } else {
-                folderShortcuts
-
                 if viewModel.filteredVideos.isEmpty {
                     ContentUnavailableView(
                         "No saved \(viewModel.selectedFilter.displayName)",
@@ -212,22 +216,8 @@ struct LibraryView: View {
     }
 
     private var masonryFeed: some View {
-        let entries = Array(viewModel.filteredVideos.enumerated())
-        let leftEntries = entries.filter { $0.offset.isMultiple(of: 2) }
-        let rightEntries = entries.filter { !$0.offset.isMultiple(of: 2) }
-
-        return HStack(alignment: .top, spacing: 12) {
-            LazyVStack(spacing: 12) {
-                ForEach(leftEntries, id: \.element.id) { index, video in
-                    videoCard(video, styleIndex: index)
-                }
-            }
-
-            LazyVStack(spacing: 12) {
-                ForEach(rightEntries, id: \.element.id) { index, video in
-                    videoCard(video, styleIndex: index)
-                }
-            }
+        LibraryVideoGrid(videos: viewModel.filteredVideos) { video, index in
+            videoCard(video, styleIndex: index)
         }
     }
 
@@ -238,8 +228,7 @@ struct LibraryView: View {
             Text("Save a TikTok, Instagram Reel, or YouTube Short to see it here.")
         } actions: {
             Button("Save a Short", action: presentSave)
-                .buttonStyle(.borderedProminent)
-                .tint(Color.centraliaInk)
+                .buttonStyle(CentraliaProminentButtonStyle())
         }
         .frame(maxWidth: .infinity, minHeight: 340)
     }
@@ -248,12 +237,11 @@ struct LibraryView: View {
         LibraryVideoCard(
             video: video,
             styleIndex: styleIndex,
-            isPlaying: playingVideoID == video.id,
             openDetail: {
-                path.append(.video(video))
+                path.append(.video(VideoDetailRoute(video: video)))
             },
-            togglePlayback: {
-                playingVideoID = playingVideoID == video.id ? nil : video.id
+            play: {
+                path.append(.video(VideoDetailRoute(video: video, startsPlaying: true)))
             },
             requestMove: {
                 movingVideo = video
@@ -267,13 +255,14 @@ struct LibraryView: View {
     @ViewBuilder
     private func destination(for route: Route) -> some View {
         switch route {
-        case let .video(video):
+        case let .video(route):
             VideoDetailView(
-                video: video,
+                video: route.video,
                 videoRepository: videoRepository,
                 folderRepository: folderRepository,
                 playbackRepository: playbackRepository,
                 analytics: analytics,
+                startsPlaying: route.startsPlaying,
                 videoChanged: { updatedVideo in
                     viewModel.apply(updatedVideo)
                 },

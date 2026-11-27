@@ -1,12 +1,19 @@
 import SwiftUI
 
+extension EnvironmentValues {
+    @Entry var offlineLibraryStatus: OfflineStatus? = nil
+}
+
 struct AuthenticatedAppView: View {
+    @Environment(\.scenePhase) private var scenePhase
     let user: AuthenticatedUser
     let videoRepository: any VideoItemRepository
     let folderRepository: any FolderRepository
     var playbackRepository: (any VideoPlaybackRepository)? = nil
     var offlineStatus = OfflineStatus()
     let searchHistoryRepository: any SearchHistoryRepository
+    let savedSearchStore: SavedSearchStore
+    let folderSuggestionCache: FolderSuggestionCache
     let userRepository: any UserRepository
     let libraryExportService: any LibraryExportService
     let authenticationRepository: any AuthenticationRepository
@@ -28,10 +35,9 @@ struct AuthenticatedAppView: View {
         }
         .animation(.easeOut(duration: 0.2), value: offlineStatus.isOnline)
         .animation(.easeOut(duration: 0.2), value: offlineStatus.pendingChanges)
-        // Changes made offline reached the server: reload with its version.
-        .onChange(of: offlineStatus.syncRevision) {
-            libraryRevision += 1
-            foldersRevision += 1
+        .environment(\.offlineLibraryStatus, offlineStatus)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { offlineStatus.retrySync() }
         }
     }
 
@@ -47,6 +53,7 @@ struct AuthenticatedAppView: View {
                     presentSave: { presentsSave = true }
                 )
                 .id(libraryRevision)
+                .centraliaTabContent()
             }
 
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
@@ -54,9 +61,12 @@ struct AuthenticatedAppView: View {
                     videoRepository: videoRepository,
                     folderRepository: folderRepository,
                     searchHistoryRepository: searchHistoryRepository,
+                    savedSearchStore: savedSearchStore,
+                    userID: user.id,
                     playbackRepository: playbackRepository
                 )
                 .id(libraryRevision)
+                .centraliaTabContent()
             }
 
             Tab("Save", systemImage: "plus", value: AppTab.save) {
@@ -68,12 +78,15 @@ struct AuthenticatedAppView: View {
                     videoRepository: videoRepository,
                     folderRepository: folderRepository,
                     suggestionPipeline: videoImportPipeline,
+                    suggestionCache: folderSuggestionCache,
+                    accountID: user.id,
                     playbackRepository: playbackRepository,
                     libraryChanged: {
                         libraryRevision += 1
                     }
                 )
                 .id(foldersRevision)
+                .centraliaTabContent()
             }
 
             Tab("Profile", systemImage: "person", value: AppTab.profile) {
@@ -88,9 +101,9 @@ struct AuthenticatedAppView: View {
                     signedOut: signedOut
                 )
                 .id(user.id)
+                .centraliaTabContent()
             }
         }
-        .tint(Color.centraliaInk)
         .onChange(of: selectedTab) { oldValue, newValue in
             guard newValue == .save else {
                 previousTab = newValue
@@ -104,11 +117,23 @@ struct AuthenticatedAppView: View {
             SaveVideoView(
                 pipeline: videoImportPipeline,
                 videoRepository: videoRepository,
-                folderRepository: folderRepository
+                folderRepository: folderRepository,
+                playbackRepository: playbackRepository
             ) {
                 libraryRevision += 1
                 foldersRevision += 1
             }
         }
+    }
+}
+
+private extension View {
+    func centraliaTabContent() -> some View {
+        GeometryReader { proxy in
+            self
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .clipped()
+        }
+        .background(Color.centraliaCanvas.ignoresSafeArea())
     }
 }

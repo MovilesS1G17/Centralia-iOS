@@ -9,13 +9,16 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
 
     private let store: MockDataStore
     private let filename: String
+    private let includeSampleContent: Bool
 
     init(
         store: MockDataStore = MockDataStore(),
-        filename: String = "library-v1.json"
+        filename: String = "library-v1.json",
+        includeSampleContent: Bool = true
     ) {
         self.store = store
         self.filename = filename
+        self.includeSampleContent = includeSampleContent
     }
 
     func videos() async throws -> [VideoItem] {
@@ -142,7 +145,11 @@ actor MockLibraryRepository: VideoItemRepository, FolderRepository {
     }
 
     private func snapshot() async throws -> Snapshot {
-        try await store.load(Snapshot.self, from: filename, seed: Self.seed)
+        try await store.load(
+            Snapshot.self,
+            from: filename,
+            seed: includeSampleContent ? Self.seed : Snapshot(schemaVersion: 1, videos: [], folders: [])
+        )
     }
 
     private func validatedFolderName(

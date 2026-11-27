@@ -1,6 +1,6 @@
 import Foundation
 
-struct AuthenticatedUser: Identifiable, Equatable, Sendable {
+nonisolated struct AuthenticatedUser: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let displayName: String
     let email: String?

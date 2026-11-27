@@ -66,10 +66,12 @@ struct APIClient {
         authenticated: Bool = true,
         optionalAuthentication: Bool = false,
         query: [URLQueryItem] = [],
-        headers: [String: String] = [:]
+        headers: [String: String] = [:],
+        timeout: TimeInterval? = nil
     ) async throws -> Data {
         let endpoint = try configuration.endpoint(path: path)
         var request = URLRequest(url: query.isEmpty ? endpoint : endpoint.appending(queryItems: query))
+        if let timeout { request.timeoutInterval = timeout }
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ios", forHTTPHeaderField: "X-Client-Platform")
@@ -147,12 +149,13 @@ struct APIClient {
         authenticated: Bool = true,
         optionalAuthentication: Bool = false,
         query: [URLQueryItem] = [],
-        headers: [String: String] = [:]
+        headers: [String: String] = [:],
+        timeout: TimeInterval? = nil
     ) async throws -> Response {
         try decode(type, from: await send(
             path, method: method, body: body,
             authenticated: authenticated, optionalAuthentication: optionalAuthentication,
-            query: query, headers: headers
+            query: query, headers: headers, timeout: timeout
         ))
     }
 }

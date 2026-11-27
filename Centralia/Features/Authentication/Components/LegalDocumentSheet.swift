@@ -37,7 +37,7 @@ struct LegalDocumentSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 }
 
