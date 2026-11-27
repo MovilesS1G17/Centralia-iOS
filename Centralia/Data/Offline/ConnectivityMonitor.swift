@@ -65,8 +65,8 @@ nonisolated enum FolderRenameNotice: Equatable, Sendable {
 
     init(error: any Error) {
         switch error as? APIClientError {
-        case .server(status: 409, code: "folder_name_duplicate", detail: _, email: _, retryAfter: _): self = .nameTaken
-        case .server(status: 404, code: _, detail: _, email: _, retryAfter: _): self = .folderRemoved
+        case .server(status: 409, code: "folder_name_duplicate", detail: _, email: _, retryAfter: _, title: _): self = .nameTaken
+        case .server(status: 404, code: _, detail: _, email: _, retryAfter: _, title: _): self = .folderRemoved
         default: self = .declined
         }
     }

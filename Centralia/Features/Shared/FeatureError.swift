@@ -48,7 +48,7 @@ enum FeatureError {
 
         if let apiError = error as? APIClientError {
             switch apiError {
-            case let .server(_, code, _, _, _): return code
+            case let .server(_, code, _, _, _, _): return code
             case .sessionExpired: return "not_authenticated"
             case .networkUnavailable: return "network_unavailable"
             case .invalidResponse: return "invalid_response"

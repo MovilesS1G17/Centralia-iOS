@@ -526,18 +526,26 @@ private struct VideoTagEditorSheet: View {
                     }
                 }
 
-                Section("Add a tag") {
+                Section {
                     HStack {
                         TextField(centralia: "New tag", text: $newTag)
                             .focused($newTagIsFocused)
                             .textInputAutocapitalization(.never)
                             .submitLabel(.done)
                             .onSubmit(addNewTag)
+                            .onChange(of: newTag) { _, value in
+                                let limited = TagRules.limitInput(value)
+                                if limited != value { newTag = limited }
+                            }
                             .accessibilityIdentifier("videoDetailNewTagField")
 
                         Button("Add", action: addNewTag)
-                            .disabled(trimmedNewTag.isEmpty)
+                            .disabled(!TagRules.isValid(newTag))
                     }
+                } header: {
+                    Text("Add a tag")
+                } footer: {
+                    Text("Up to \(TagRules.maxLength) characters · \(TagRules.counter(newTag))")
                 }
 
                 if !unselectedAvailableTags.isEmpty {
@@ -579,10 +587,6 @@ private struct VideoTagEditorSheet: View {
         .interactiveDismissDisabled(viewModel.isMutating)
     }
 
-    private var trimmedNewTag: String {
-        newTag.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var unselectedAvailableTags: [String] {
         viewModel.availableTags.filter { availableTag in
             !selectedTags.contains {
@@ -592,13 +596,8 @@ private struct VideoTagEditorSheet: View {
     }
 
     private func addNewTag() {
-        let tag = trimmedNewTag
-        guard !tag.isEmpty else { return }
-        if !selectedTags.contains(where: {
-            $0.localizedCaseInsensitiveCompare(tag) == .orderedSame
-        }) {
-            selectedTags.append(tag)
-        }
+        guard TagRules.isValid(newTag) else { return }
+        selectedTags = TagRules.addingPending(newTag, to: selectedTags)
         newTag = ""
     }
 
@@ -609,8 +608,9 @@ private struct VideoTagEditorSheet: View {
     }
 
     private func save() {
+        let tags = TagRules.addingPending(newTag, to: selectedTags)
         Task {
-            guard await viewModel.updateTags(selectedTags) else { return }
+            guard await viewModel.updateTags(tags) else { return }
             tagsSaved()
             dismiss()
         }

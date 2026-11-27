@@ -224,7 +224,8 @@ struct SaveVideoView: View {
             SaveImportStatusCard(
                 metadata: nil,
                 stage: nil,
-                errorMessage: message
+                errorMessage: message,
+                errorTitle: viewModel.failureTitle
             )
         }
     }
