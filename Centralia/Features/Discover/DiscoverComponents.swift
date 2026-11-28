@@ -123,3 +123,46 @@ func savedAgoLabel(_ date: Date, now: Date = .now, verb: String = "saved") -> St
     default: return "\(verb) \(days) days ago"
     }
 }
+
+/// A white rounded card for a block of content (Trends, Insights).
+struct FeatureCard<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CentraliaTheme.Spacing.small) {
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(CentraliaTheme.Spacing.medium)
+        .background(Color.centraliaSurface, in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.centraliaDivider, lineWidth: 1))
+    }
+}
+
+/// A labelled horizontal bar: label, bar proportional to `fraction`, value.
+struct LabeledBar: View {
+    let label: String
+    let value: String
+    let fraction: Double
+
+    var body: some View {
+        HStack(spacing: CentraliaTheme.Spacing.small) {
+            Text(label)
+                .font(.subheadline)
+                .lineLimit(1)
+                .frame(width: 104, alignment: .leading)
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.centraliaSoftSurface)
+                    Capsule().fill(Color.centraliaInk)
+                        .frame(width: proxy.size.width * min(max(fraction, 0.02), 1))
+                }
+            }
+            .frame(height: 10)
+            Text(value)
+                .font(.footnote.weight(.semibold))
+                .frame(minWidth: 40, alignment: .trailing)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}

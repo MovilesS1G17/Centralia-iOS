@@ -6,6 +6,7 @@ struct LibraryView: View {
     private enum Route: Hashable {
         case creators
         case rediscover
+        case insights
         case video(VideoDetailRoute)
         case folder(LibraryFolder)
         case trends
@@ -27,6 +28,7 @@ struct LibraryView: View {
     private let playbackRepository: (any VideoPlaybackRepository)?
     private let trends: any TrendsLoading
     private let rediscoverDismissals: any RediscoverDismissing
+    private let insightsStore: any InsightsSnapshotStoring
 
     init(
         videoRepository: any VideoItemRepository,
@@ -37,6 +39,7 @@ struct LibraryView: View {
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         trends: any TrendsLoading,
         rediscoverDismissals: any RediscoverDismissing,
+        insightsStore: any InsightsSnapshotStoring,
         presentSave: @escaping () -> Void
     ) {
         _viewModel = State(
@@ -50,6 +53,7 @@ struct LibraryView: View {
         self.playbackRepository = playbackRepository
         self.trends = trends
         self.rediscoverDismissals = rediscoverDismissals
+        self.insightsStore = insightsStore
         _selectedTab = selectedTab
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
@@ -109,6 +113,19 @@ struct LibraryView: View {
                             }
                             .buttonStyle(CentraliaPressStyle())
                             .accessibilityIdentifier("discover_rediscover")
+
+                            Button {
+                                path.append(.insights)
+                            } label: {
+                                Label("Insights", systemImage: "chart.bar")
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                                    .frame(minHeight: 44)
+                                    .background(Color.centraliaSurface, in: Capsule())
+                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                            }
+                            .buttonStyle(CentraliaPressStyle())
+                            .accessibilityIdentifier("discover_insights")
                         }
                     }
                     .scrollIndicators(.hidden)
@@ -358,6 +375,9 @@ struct LibraryView: View {
 
         case .trends:
             TrendsView(repository: trends)
+
+        case .insights:
+            InsightsView(viewModel: InsightsViewModel(videoRepository: videoRepository, store: insightsStore))
 
         case let .video(route):
             VideoDetailView(

@@ -53,6 +53,7 @@ struct AuthenticatedAppView: View {
                     playbackRepository: playbackRepository,
                     trends: trends,
                     rediscoverDismissals: UserDefaultsRediscoverDismissals(accountID: user.id),
+                    insightsStore: FileInsightsSnapshotStore(accountID: user.id),
                     presentSave: { presentsSave = true }
                 )
                 .id(libraryRevision)
