@@ -16,14 +16,16 @@ final class SearchViewModel {
     private let analytics: any AnalyticsTracking
     private var hasTrackedScreen = false
     @ObservationIgnored private var resultsCache = LRUCache<VideoSearchCriteria, [VideoItem]>(capacity: 20)
+    @ObservationIgnored private var searchIndex: VideoSearchIndex?
+    @ObservationIgnored private var searchLocale = Locale.current
 
     private(set) var state: LoadState = .idle
     private(set) var failureMessage: String?
     private(set) var videos: [VideoItem] = [] {
-        didSet { resultsCache.removeAll() }
+        didSet { invalidateSearch() }
     }
     private(set) var folders: [LibraryFolder] = [] {
-        didSet { resultsCache.removeAll() }
+        didSet { invalidateSearch() }
     }
     private(set) var recentSearches: [String] = []
     private(set) var recentlyDeletedVideo: VideoItem?
@@ -51,16 +53,33 @@ final class SearchViewModel {
         let videos = self.videos
         let folders = self.folders
         guard !selectedFolderIsUnavailable else { return [] }
+        let locale = Locale.current
+        if searchLocale != locale {
+            searchLocale = locale
+            invalidateSearch()
+        }
         let key = criteria
         if let cached = resultsCache.value(for: key) { return cached }
 
-        let results = VideoSearch.filter(
-            videos,
-            criteria: key,
-            folderNames: Dictionary(folders.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        )
+        let results: [VideoItem]
+        if key.text.contains(where: { !$0.isWhitespace }) {
+            let index = searchIndex ?? VideoSearchIndex(
+                videos,
+                folderNames: Dictionary(folders.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }),
+                locale: locale
+            )
+            searchIndex = index
+            results = index.filter(criteria: key)
+        } else {
+            results = VideoSearch.filter(videos, criteria: key)
+        }
         resultsCache.insert(results, for: key)
         return results
+    }
+
+    private func invalidateSearch() {
+        searchIndex = nil
+        resultsCache.removeAll()
     }
 
     var availableCreators: [String] {
