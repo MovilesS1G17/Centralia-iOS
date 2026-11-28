@@ -2,6 +2,7 @@ import SwiftUI
 
 extension EnvironmentValues {
     @Entry var offlineLibraryStatus: OfflineStatus? = nil
+    @Entry var watchLaterStore: (any WatchLaterStoring)? = nil
 }
 
 struct AuthenticatedAppView: View {
@@ -25,6 +26,7 @@ struct AuthenticatedAppView: View {
     @State private var selectedTab: AppTab = .library
     @State private var previousTab: AppTab = .library
     @State private var presentsSave = false
+    @State private var watchLaterStore: (any WatchLaterStoring)?
     @State private var libraryRevision = 0
     @State private var foldersRevision = 0
 
@@ -37,6 +39,10 @@ struct AuthenticatedAppView: View {
         .animation(.easeOut(duration: 0.2), value: offlineStatus.isOnline)
         .animation(.easeOut(duration: 0.2), value: offlineStatus.pendingChanges)
         .environment(\.offlineLibraryStatus, offlineStatus)
+        .environment(\.watchLaterStore, watchLaterStore)
+        .task(id: user.id) {
+            watchLaterStore = CoreDataWatchLaterStore(accountID: user.id)
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { offlineStatus.retrySync() }
         }
