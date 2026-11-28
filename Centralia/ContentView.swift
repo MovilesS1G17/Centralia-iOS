@@ -49,24 +49,30 @@ struct ContentView: View {
                     )
 
                 case let .authenticated(user):
-                    AuthenticatedAppView(
-                        user: user,
-                        videoRepository: container.videoItemRepository,
-                        folderRepository: container.folderRepository,
-                        playbackRepository: container.videoPlaybackRepository,
-                        offlineStatus: container.offlineStatus,
-                        trends: container.trends,
-                        searchHistoryRepository: container.searchHistoryRepository,
-                        savedSearchStore: container.savedSearchStore,
-                        folderSuggestionCache: container.folderSuggestionCache,
-                        userRepository: container.userRepository,
-                        libraryExportService: container.libraryExportService,
-                        authenticationRepository: container.authenticationRepository,
-                        videoImportPipeline: container.videoImportPipeline,
-                        userChanged: container.session.updateAuthenticatedUser,
-                        signedOut: container.session.signOut
-                    )
-                    .environment(\.recentlyViewed, container.recentlyViewed)
+                    if let sprint4 = container.sprint4 {
+                        AuthenticatedAppView(
+                            user: user,
+                            videoRepository: container.videoItemRepository,
+                            folderRepository: container.folderRepository,
+                            playbackRepository: container.videoPlaybackRepository,
+                            offlineStatus: container.offlineStatus,
+                            sprint4: sprint4,
+                            searchHistoryRepository: container.searchHistoryRepository,
+                            savedSearchStore: container.savedSearchStore,
+                            folderSuggestionCache: container.folderSuggestionCache,
+                            userRepository: container.userRepository,
+                            libraryExportService: container.libraryExportService,
+                            authenticationRepository: container.authenticationRepository,
+                            videoImportPipeline: container.videoImportPipeline,
+                            userChanged: container.session.updateAuthenticatedUser,
+                            signedOut: container.session.signOut
+                        )
+                        .id(user.id)
+                        .environment(\.recentlyViewed, container.recentlyViewed)
+                        .environment(\.sprint4, sprint4)
+                    } else {
+                        ProgressView("Opening your library…")
+                    }
                 }
             }
         }

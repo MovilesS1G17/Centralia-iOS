@@ -25,11 +25,19 @@ final class RediscoverViewModel {
     @ObservationIgnored private let videoRepository: any VideoItemRepository
     @ObservationIgnored private let recentlyViewed: RecentlyViewedHistory?
     @ObservationIgnored private let dismissals: any RediscoverDismissing
+    @ObservationIgnored private let analytics: any AnalyticsTracking
+    @ObservationIgnored private var hasTrackedView = false
 
-    init(videoRepository: any VideoItemRepository, recentlyViewed: RecentlyViewedHistory?, dismissals: any RediscoverDismissing) {
+    init(
+        videoRepository: any VideoItemRepository,
+        recentlyViewed: RecentlyViewedHistory?,
+        dismissals: any RediscoverDismissing,
+        analytics: any AnalyticsTracking = NoOpAnalyticsTracking()
+    ) {
         self.videoRepository = videoRepository
         self.recentlyViewed = recentlyViewed
         self.dismissals = dismissals
+        self.analytics = analytics
     }
 
     func load() async {
@@ -54,10 +62,18 @@ final class RediscoverViewModel {
             items = picks.compactMap { pick in byID[pick.videoID].map { RediscoverItem(pick: pick, video: $0) } }
             librarySize = videos.count
             state = .loaded
+            if !hasTrackedView {
+                hasTrackedView = true
+                analytics.track(.rediscoverViewed(shown: items.count))
+            }
         } catch {
             guard !Task.isCancelled else { return }
             state = .failed(FeatureError.message(for: error))
         }
+    }
+
+    func opened(_ pick: RediscoverPick) {
+        analytics.track(.rediscoverOpened(videoID: pick.videoID, daysSinceSave: pick.daysSinceSaved))
     }
 
     /// "Not now": hidden for 30 days; the list closes the gap right away.
@@ -135,6 +151,7 @@ struct RediscoverView: View {
             } else {
                 ForEach(viewModel.items) { item in
                     ShortRow(video: item.video, detail: item.pick.reason) {
+                        viewModel.opened(item.pick)
                         openVideo(item.video)
                     } trailing: {
                         Button("Not now") { viewModel.notNow(item.pick) }

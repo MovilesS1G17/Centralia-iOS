@@ -13,11 +13,13 @@ final class WatchLaterViewModel {
 
     @ObservationIgnored private let videoRepository: any VideoItemRepository
     @ObservationIgnored private let store: any WatchLaterStoring
+    @ObservationIgnored private let analytics: any AnalyticsTracking
     @ObservationIgnored private var library: [VideoItem]?
 
-    init(videoRepository: any VideoItemRepository, store: any WatchLaterStoring) {
+    init(videoRepository: any VideoItemRepository, store: any WatchLaterStoring, analytics: any AnalyticsTracking = NoOpAnalyticsTracking()) {
         self.videoRepository = videoRepository
         self.store = store
+        self.analytics = analytics
     }
 
     func load() async {
@@ -39,7 +41,10 @@ final class WatchLaterViewModel {
 
     /// Opening from the queue marks it watched (BQ12: watched within 7 days?).
     func open(_ video: VideoItem) async {
-        _ = await store.markWatched(video.id, at: .now)
+        let now = Date()
+        if let entry = await store.markWatched(video.id, at: now), !entry.isWatched {
+            analytics.track(.watchLaterOpened(videoID: video.id, hoursInQueue: max(0, entry.hoursInQueue(at: now))))
+        }
         await reload()
     }
 
@@ -172,6 +177,7 @@ struct WatchLaterView: View {
 struct WatchLaterToggle: View {
     let video: VideoItem
     let store: any WatchLaterStoring
+    let analytics: any AnalyticsTracking
     @State private var isQueued: Bool?
     @State private var isUpdating = false
 
@@ -203,8 +209,8 @@ struct WatchLaterToggle: View {
         defer { isUpdating = false }
         if queued {
             await store.remove(video.id)
-        } else {
-            _ = await store.add(videoID: video.id, title: video.displayTitle, creator: video.creator, at: .now)
+        } else if await store.add(videoID: video.id, title: video.displayTitle, creator: video.creator, at: .now) {
+            analytics.track(.watchLaterAdded(videoID: video.id))
         }
         isQueued = await store.contains(video.id)
     }

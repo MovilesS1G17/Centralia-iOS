@@ -1,5 +1,62 @@
 import SwiftUI
 
+/// The five Sprint 4 views, reachable from the "Discover" row on the Library.
+enum DiscoverDestination: String, CaseIterable, Identifiable, Hashable {
+    case trends, creators, rediscover, insights
+    case watchLater = "watch_later"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .watchLater: "Watch later"
+        case .rediscover: "Rediscover"
+        case .creators: "Creators"
+        case .trends: "Trends"
+        case .insights: "Insights"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .watchLater: "bookmark"
+        case .rediscover: "clock.arrow.circlepath"
+        case .creators: "person.2"
+        case .trends: "flame"
+        case .insights: "chart.bar"
+        }
+    }
+}
+
+/// A row of capsules on the Library, one per Sprint 4 view.
+struct DiscoverShortcutsRow: View {
+    let open: (DiscoverDestination) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: CentraliaTheme.Spacing.small) {
+                ForEach(DiscoverDestination.allCases) { destination in
+                    Button {
+                        open(destination)
+                    } label: {
+                        Label(destination.title, systemImage: destination.systemImage)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.centraliaInk)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                            .background(Color.centraliaSurface, in: Capsule())
+                            .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                    }
+                    .buttonStyle(CentraliaPressStyle())
+                    .accessibilityHint("Opens \(destination.title)")
+                    .accessibilityIdentifier("discover_\(destination.rawValue)")
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+}
+
 /// Back button, large title and a one-line description: the top of every Sprint 4 view.
 struct FeatureHeader<Trailing: View>: View {
     let title: String

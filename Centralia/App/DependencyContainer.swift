@@ -1,4 +1,7 @@
 import Foundation
+import Observation
+
+@Observable
 final class DependencyContainer {
     let authenticationRepository: any AuthenticationRepository
     let videoItemRepository: any VideoItemRepository
@@ -9,7 +12,7 @@ final class DependencyContainer {
     let savedSearchStore: SavedSearchStore
     let recentlyViewed: RecentlyViewedHistory
     let rememberedEmail: any RememberedEmailStoring
-    let trends: any TrendsLoading
+    private(set) var sprint4: Sprint4Services?
     let folderSuggestionCache: FolderSuggestionCache
     let userRepository: any UserRepository
     let libraryExportService: any LibraryExportService
@@ -18,7 +21,9 @@ final class DependencyContainer {
     /// Sprint 3: online/offline and changes waiting to sync, for the banner.
     let offlineStatus: OfflineStatus
     /// Kept alive for the whole app (watches the network, sends the outbox).
-    private var backgroundServices: [AnyObject] = []
+    @ObservationIgnored private var backgroundServices: [AnyObject] = []
+    @ObservationIgnored private var sprint4Activation: Task<Void, Never>?
+    @ObservationIgnored private var sprint4Cleanup: Task<Void, Never>?
 
     init(
         authenticationRepository: any AuthenticationRepository,
@@ -30,7 +35,7 @@ final class DependencyContainer {
         savedSearchStore: SavedSearchStore = SavedSearchStore(),
         recentlyViewed: RecentlyViewedHistory,
         rememberedEmail: any RememberedEmailStoring = InMemoryRememberedEmailStore(),
-        trends: any TrendsLoading,
+        makeSprint4Services: @escaping (UUID) -> Sprint4Services,
         folderSuggestionCache: FolderSuggestionCache = FolderSuggestionCache(),
         userRepository: any UserRepository,
         libraryExportService: any LibraryExportService,
@@ -47,13 +52,41 @@ final class DependencyContainer {
         self.savedSearchStore = savedSearchStore
         self.recentlyViewed = recentlyViewed
         self.rememberedEmail = rememberedEmail
-        self.trends = trends
         self.folderSuggestionCache = folderSuggestionCache
         self.userRepository = userRepository
         self.libraryExportService = libraryExportService
         self.videoImportPipeline = videoImportPipeline
         self.session = session
         self.offlineStatus = offlineStatus
+
+        let didAuthenticate = session.onAuthenticated
+        session.onAuthenticated = { [weak self] accountID in
+            didAuthenticate?(accountID)
+            self?.activateSprint4(for: accountID, makeServices: makeSprint4Services)
+        }
+        let didSignOut = session.onSignOut
+        session.onSignOut = { [weak self] in
+            self?.endSprint4Session()
+            didSignOut?()
+        }
+    }
+
+    private func activateSprint4(for accountID: UUID, makeServices: @escaping (UUID) -> Sprint4Services) {
+        endSprint4Session()
+        let cleanup = sprint4Cleanup
+        sprint4Activation = Task { [weak self] in
+            await cleanup?.value
+            guard let self, !Task.isCancelled, session.authenticatedUserID == accountID else { return }
+            sprint4Cleanup = nil
+            sprint4 = makeServices(accountID)
+        }
+    }
+
+    private func endSprint4Session() {
+        sprint4Activation?.cancel()
+        sprint4Activation = nil
+        if let sprint4 { sprint4Cleanup = sprint4.endSession() }
+        sprint4 = nil
     }
 
     static func mock(
@@ -68,16 +101,8 @@ final class DependencyContainer {
         let userRepository = MockUserRepository(store: store)
         let session = AppSession()
         let recentlyViewed = RecentlyViewedHistory(store: InMemoryRecentlyViewedStore())
-        let trends = CachedTrendsRepository(
-            fetch: { days in
-                if offline { throw TrendsUnavailableError() }
-                return APITrendsClient.sample(windowDays: days)
-            },
-            disk: InMemoryTrendsDiskStore()
-        )
         let clearSessionData = { [weak session] in
             recentlyViewed.clear()
-            Task { await trends.clear() }
             if let accountID = session?.authenticatedUserID {
                 Task { await folderSuggestionCache.clear(for: accountID) }
             }
@@ -108,7 +133,20 @@ final class DependencyContainer {
             searchHistoryRepository: MockSearchHistoryRepository(store: store),
             savedSearchStore: savedSearchStore,
             recentlyViewed: recentlyViewed,
-            trends: trends,
+            makeSprint4Services: { _ in
+                Sprint4Services(
+                    dismissals: InMemoryRediscoverDismissals(),
+                    watchLater: InMemoryWatchLaterStore(),
+                    trends: CachedTrendsRepository(
+                        fetch: { days in
+                            if offline { throw TrendsUnavailableError() }
+                            return APITrendsClient.sample(windowDays: days)
+                        },
+                        disk: InMemoryTrendsDiskStore()
+                    ),
+                    insights: InMemoryInsightsSnapshotStore()
+                )
+            },
             folderSuggestionCache: folderSuggestionCache,
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
@@ -134,10 +172,6 @@ final class DependencyContainer {
         let session = AppSession(isRestoringSession: true)
         let recentlyViewed = RecentlyViewedHistory(store: CoreDataRecentlyViewedStore())
         let trendsClient = APITrendsClient(client: api)
-        let trends = CachedTrendsRepository(
-            fetch: { days in try await trendsClient.trends(windowDays: days) },
-            disk: FileTrendsDiskStore()
-        )
         let folderSuggestionCache = FolderSuggestionCache()
         let userRepository = OfflineUserRepository(
             remote: APIUserRepository(client: api),
@@ -158,7 +192,6 @@ final class DependencyContainer {
             replayVideo: { try await videosAPI.replay($0) },
             onSignOut: { [weak session] in
                 recentlyViewed.clear()
-                Task { await trends.clear() }
                 userRepository.clear()
                 searchHistoryRepository.clear()
                 CoverImageLoader.shared.clear()
@@ -167,11 +200,6 @@ final class DependencyContainer {
                 }
             }
         )
-
-        connectivity.onChange = { online in
-            status.isOnline = online
-            status.retrySync()
-        }
 
         let container = DependencyContainer(
             authenticationRepository: APIAuthenticationRepository(client: api),
@@ -182,7 +210,24 @@ final class DependencyContainer {
             searchHistoryRepository: searchHistoryRepository,
             recentlyViewed: recentlyViewed,
             rememberedEmail: KeychainRememberedEmailStore(),
-            trends: trends,
+            makeSprint4Services: { accountID in
+                let token = try? api.tokenStore.accessToken()
+                let tracker = token.map {
+                    BatchingAnalyticsTracker(repository: APIAnalyticsRepository(
+                        client: api, sessionToken: $0, isOnline: { [weak status] in status?.isOnline == true }
+                    ))
+                }
+                return Sprint4Services(
+                    dismissals: UserDefaultsRediscoverDismissals(accountID: accountID),
+                    watchLater: CoreDataWatchLaterStore(accountID: accountID),
+                    trends: CachedTrendsRepository(
+                        fetch: { days in try await trendsClient.trends(windowDays: days) },
+                        disk: FileTrendsDiskStore()
+                    ),
+                    insights: FileInsightsSnapshotStore(accountID: accountID),
+                    tracker: tracker
+                )
+            },
             folderSuggestionCache: folderSuggestionCache,
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
@@ -194,6 +239,11 @@ final class DependencyContainer {
             session: session,
             offlineStatus: status
         )
+        connectivity.onChange = { [weak container] online in
+            status.isOnline = online
+            status.retrySync()
+            if online { Task { await container?.sprint4?.flushAnalytics() } }
+        }
         container.backgroundServices = [connectivity]
         return container
     }

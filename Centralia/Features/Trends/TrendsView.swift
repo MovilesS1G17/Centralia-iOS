@@ -10,10 +10,12 @@ final class TrendsViewModel {
     private(set) var errorMessage: String?
 
     private let repository: any TrendsLoading
+    private let analytics: any AnalyticsTracking
     @ObservationIgnored private var requestID = 0
 
-    init(repository: any TrendsLoading) {
+    init(repository: any TrendsLoading, analytics: any AnalyticsTracking = NoOpAnalyticsTracking()) {
         self.repository = repository
+        self.analytics = analytics
     }
 
     func load(forceRefresh: Bool = false) async {
@@ -21,13 +23,23 @@ final class TrendsViewModel {
         errorMessage = nil
         requestID += 1
         let currentRequest = requestID
+        let days = windowDays
+        let start = ContinuousClock.now
         defer {
             if currentRequest == requestID { isLoading = false }
         }
         do {
-            let loaded = try await repository.load(windowDays: windowDays, forceRefresh: forceRefresh)
+            let loaded = try await repository.load(windowDays: days, forceRefresh: forceRefresh)
             guard currentRequest == requestID, !Task.isCancelled else { return }
             result = loaded
+            let elapsed = start.duration(to: .now).components
+            let ms = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1e15
+            analytics.track(.trendsLoaded(
+                source: loaded.source,
+                durationMs: (ms * 10).rounded() / 10,
+                stale: loaded.isStale,
+                windowDays: days
+            ))
         } catch is CancellationError {
             return
         } catch {
@@ -48,8 +60,8 @@ struct TrendsView: View {
     @Environment(\.offlineLibraryStatus) private var offlineStatus
     @State private var viewModel: TrendsViewModel
 
-    init(repository: any TrendsLoading) {
-        _viewModel = State(initialValue: TrendsViewModel(repository: repository))
+    init(repository: any TrendsLoading, analytics: any AnalyticsTracking) {
+        _viewModel = State(initialValue: TrendsViewModel(repository: repository, analytics: analytics))
     }
 
     private var isOnline: Bool { offlineStatus?.isOnline ?? true }

@@ -135,6 +135,7 @@ nonisolated enum Rediscover {
 nonisolated protocol RediscoverDismissing: Sendable {
     func active(now: Date) -> Set<UUID>
     func dismiss(_ videoID: UUID, at date: Date)
+    func clear()
 }
 
 /// Key/value storage: `UserDefaults` (short id → when it was dismissed).
@@ -165,4 +166,26 @@ nonisolated final class UserDefaultsRediscoverDismissals: RediscoverDismissing, 
         defaults.set(stored, forKey: key)
     }
 
+    func clear() {
+        Self.lock.withLock { defaults.removeObject(forKey: key) }
+    }
+}
+
+nonisolated final class InMemoryRediscoverDismissals: RediscoverDismissing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var dismissedAt: [UUID: Date] = [:]
+
+    func active(now: Date) -> Set<UUID> {
+        lock.withLock {
+            Set(dismissedAt.filter { Rediscover.days(from: $0.value, to: now) < Rediscover.dismissDays }.keys)
+        }
+    }
+
+    func dismiss(_ videoID: UUID, at date: Date) {
+        lock.withLock { dismissedAt[videoID] = date }
+    }
+
+    func clear() {
+        lock.withLock { dismissedAt.removeAll() }
+    }
 }
