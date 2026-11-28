@@ -5,6 +5,8 @@ struct LibraryView: View {
     @Environment(\.recentlyViewed) private var recentlyViewed
     private enum Route: Hashable {
         case creators
+        case rediscover
+        case insights
         case video(VideoDetailRoute)
         case folder(LibraryFolder)
         case trends
@@ -25,6 +27,8 @@ struct LibraryView: View {
     private let analytics: any AnalyticsTracking
     private let playbackRepository: (any VideoPlaybackRepository)?
     private let trends: any TrendsLoading
+    private let rediscoverDismissals: any RediscoverDismissing
+    private let insightsStore: any InsightsSnapshotStoring
 
     init(
         videoRepository: any VideoItemRepository,
@@ -34,6 +38,8 @@ struct LibraryView: View {
         playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
         trends: any TrendsLoading,
+        rediscoverDismissals: any RediscoverDismissing,
+        insightsStore: any InsightsSnapshotStoring,
         presentSave: @escaping () -> Void
     ) {
         _viewModel = State(
@@ -46,6 +52,8 @@ struct LibraryView: View {
         self.analytics = analytics
         self.playbackRepository = playbackRepository
         self.trends = trends
+        self.rediscoverDismissals = rediscoverDismissals
+        self.insightsStore = insightsStore
         _selectedTab = selectedTab
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
@@ -65,33 +73,62 @@ struct LibraryView: View {
                         selectedTab = .search
                     }
 
-                    HStack(spacing: CentraliaTheme.Spacing.small) {
-                        Button {
-                            path.append(.trends)
-                        } label: {
-                            Label("Trends", systemImage: "flame")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                                .frame(minHeight: 44)
-                                .background(Color.centraliaSurface, in: Capsule())
-                                .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
-                        }
-                        .buttonStyle(CentraliaPressStyle())
-                        .accessibilityIdentifier("discover_trends")
+                    ScrollView(.horizontal) {
+                        HStack(spacing: CentraliaTheme.Spacing.small) {
+                            Button {
+                                path.append(.trends)
+                            } label: {
+                                Label("Trends", systemImage: "flame")
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                                    .frame(minHeight: 44)
+                                    .background(Color.centraliaSurface, in: Capsule())
+                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                            }
+                            .buttonStyle(CentraliaPressStyle())
+                            .accessibilityIdentifier("discover_trends")
 
-                        Button {
-                            path.append(.creators)
-                        } label: {
-                            Label("Creators", systemImage: "person.2")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                                .frame(minHeight: 44)
-                                .background(Color.centraliaSurface, in: Capsule())
-                                .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                            Button {
+                                path.append(.creators)
+                            } label: {
+                                Label("Creators", systemImage: "person.2")
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                                    .frame(minHeight: 44)
+                                    .background(Color.centraliaSurface, in: Capsule())
+                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                            }
+                            .buttonStyle(CentraliaPressStyle())
+                            .accessibilityIdentifier("discover_creators")
+
+                            Button {
+                                path.append(.rediscover)
+                            } label: {
+                                Label("Rediscover", systemImage: "clock.arrow.circlepath")
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                                    .frame(minHeight: 44)
+                                    .background(Color.centraliaSurface, in: Capsule())
+                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                            }
+                            .buttonStyle(CentraliaPressStyle())
+                            .accessibilityIdentifier("discover_rediscover")
+
+                            Button {
+                                path.append(.insights)
+                            } label: {
+                                Label("Insights", systemImage: "chart.bar")
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                                    .frame(minHeight: 44)
+                                    .background(Color.centraliaSurface, in: Capsule())
+                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                            }
+                            .buttonStyle(CentraliaPressStyle())
+                            .accessibilityIdentifier("discover_insights")
                         }
-                        .buttonStyle(CentraliaPressStyle())
-                        .accessibilityIdentifier("discover_creators")
                     }
+                    .scrollIndicators(.hidden)
 
                     sourceFilters
 
@@ -326,8 +363,21 @@ struct LibraryView: View {
                 openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
             )
 
+        case .rediscover:
+            RediscoverView(
+                viewModel: RediscoverViewModel(
+                    videoRepository: videoRepository, recentlyViewed: recentlyViewed,
+                    dismissals: rediscoverDismissals
+                ),
+                isOnline: offlineStatus?.isOnline ?? true,
+                openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
+            )
+
         case .trends:
             TrendsView(repository: trends)
+
+        case .insights:
+            InsightsView(viewModel: InsightsViewModel(videoRepository: videoRepository, store: insightsStore))
 
         case let .video(route):
             VideoDetailView(

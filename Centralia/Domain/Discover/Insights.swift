@@ -111,6 +111,10 @@ nonisolated struct FileInsightsSnapshotStore: InsightsSnapshotStoring {
         self.file = file
     }
 
+    init(accountID: UUID) {
+        self.init(file: URL.applicationSupportDirectory.appending(path: "insights/\(accountID.uuidString).json"))
+    }
+
     func load() async -> InsightsSnapshot? {
         guard let data = try? Data(contentsOf: file) else { return nil }
         let decoder = JSONDecoder()

@@ -12,15 +12,16 @@ final class InsightsViewModel {
     private(set) var errorMessage: String?
 
     @ObservationIgnored private let videoRepository: any VideoItemRepository
-    @ObservationIgnored private let services: Sprint4Services
+    @ObservationIgnored private let store: any InsightsSnapshotStoring
 
-    init(videoRepository: any VideoItemRepository, services: Sprint4Services) {
+    init(videoRepository: any VideoItemRepository, store: any InsightsSnapshotStoring) {
         self.videoRepository = videoRepository
-        self.services = services
+        self.store = store
     }
 
     func load() async {
-        let previous = await services.insights.load()
+        let previous = await store.load()
+        guard !Task.isCancelled else { return }
         if let previous {
             snapshot = previous
             isFromLastVisit = true
@@ -31,13 +32,14 @@ final class InsightsViewModel {
             let current = await Task.detached(priority: .userInitiated) {
                 Insights.compute(facts, now: now)
             }.value
+            guard !Task.isCancelled else { return }
             snapshot = current
             sinceLastVisit = Insights.sinceLastVisit(previous, current)
             isFromLastVisit = false
             isUpdating = false
-            await services.insights.save(current)
-            services.analytics.track(.insightsViewed(weeks: current.weeks.count))
+            await store.save(current)
         } catch {
+            guard !Task.isCancelled else { return }
             isUpdating = false
             errorMessage = FeatureError.message(for: error)
         }
