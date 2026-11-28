@@ -241,7 +241,7 @@ struct LibraryView: View {
                     ForEach(viewModel.folders) { folder in
                         FolderShortcut(
                             folder: folder,
-                            itemCount: viewModel.videos.count { $0.folderID == folder.id }
+                            itemCount: viewModel.folderVideoCounts[folder.id, default: 0]
                         ) {
                             path.append(.folder(folder))
                         }

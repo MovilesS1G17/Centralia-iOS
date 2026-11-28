@@ -84,6 +84,36 @@ final class CentraliaUITests: XCTestCase {
     }
 
     @MainActor
+    func testDiscoverOpensAllFiveSprintFourViews() {
+        let app = makeApp()
+        app.launch()
+        app.buttons["Continue with Apple"].tap()
+
+        let first = app.buttons["discover_watch_later"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        let row = app.scrollViews["discover_shortcuts"]
+        for (id, title) in [
+            ("watch_later", "Watch later"),
+            ("rediscover", "Rediscover"),
+            ("creators", "Creators"),
+            ("trends", "Trends"),
+            ("insights", "Insights")
+        ] {
+            let shortcut = app.buttons["discover_\(id)"]
+            if !shortcut.isHittable { row.swipeLeft() }
+            guard shortcut.isHittable else {
+                XCTFail("Discover shortcut was not tappable: \(id)")
+                return
+            }
+            shortcut.tap()
+            let heading = app.staticTexts[title]
+            XCTAssertTrue(heading.waitForExistence(timeout: 5))
+            app.buttons["Back"].tap()
+            XCTAssertTrue(first.waitForExistence(timeout: 5))
+        }
+    }
+
+    @MainActor
     func testSearchUpdatesResultsWhileTyping() throws {
         let app = makeApp()
         app.launch()

@@ -2,8 +2,8 @@ import SwiftUI
 
 /// The five Sprint 4 views, reachable from the "Discover" row on the Library.
 enum DiscoverDestination: String, CaseIterable, Identifiable, Hashable {
-    case trends, creators, rediscover, insights
     case watchLater = "watch_later"
+    case rediscover, creators, trends, insights
 
     var id: String { rawValue }
 
@@ -54,6 +54,7 @@ struct DiscoverShortcutsRow: View {
             }
         }
         .scrollIndicators(.hidden)
+        .accessibilityIdentifier("discover_shortcuts")
     }
 }
 

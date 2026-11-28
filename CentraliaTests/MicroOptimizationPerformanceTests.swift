@@ -87,6 +87,35 @@ final class MicroOptimizationPerformanceTests: XCTestCase {
         XCTAssertEqual(parsed.count, timestamps.count)
     }
 
+    func testFolderCountsBefore() {
+        let (folders, videos) = folderCountFixture()
+        var total = 0
+        measure {
+            total = folders.reduce(0) { sum, folder in
+                sum + videos.count { $0.folderID == folder }
+            }
+        }
+        XCTAssertEqual(total, 750)
+    }
+
+    func testFolderCountsInOnePass() {
+        let (folders, videos) = folderCountFixture()
+        var total = 0
+        measure {
+            let counts = LibraryViewModel.countByFolder(videos)
+            total = folders.reduce(0) { $0 + counts[$1, default: 0] }
+        }
+        XCTAssertEqual(total, 750)
+    }
+
+    private func folderCountFixture() -> (folders: [UUID], videos: [VideoItem]) {
+        let folders = (0..<40).map { _ in UUID() }
+        let videos = (0..<1_000).map { index in
+            LibraryFixtures.video(folderID: index.isMultiple(of: 4) ? nil : folders[index % folders.count])
+        }
+        return (folders, videos)
+    }
+
     /// The same 1,000 shorts and query prefixes run against both implementations.
     private func library() -> (videos: [VideoItem], folders: [UUID: String]) {
         let words = ["pasta", "workout", "beach", "design", "swiftui", "morning", "routine", "crème",
