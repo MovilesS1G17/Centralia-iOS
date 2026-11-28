@@ -166,3 +166,17 @@ struct LabeledBar: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+/// A small text action used on the rows ("Not now", "Remove").
+struct RowTextAction: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(title, action: action)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Color.centraliaInk)
+            .frame(minWidth: 44, minHeight: 44)
+            .buttonStyle(CentraliaPressStyle())
+    }
+}

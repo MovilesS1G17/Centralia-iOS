@@ -11,6 +11,7 @@ struct VideoDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.recentlyViewed) private var recentlyViewed
+    @Environment(\.watchLaterStore) private var watchLaterStore
     @State private var viewModel: VideoDetailViewModel
     @State private var startsPlaying: Bool
     @State private var recordedVisit = false
@@ -73,6 +74,9 @@ struct VideoDetailView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 8))
+                }
+                if let watchLaterStore {
+                    WatchLaterToggle(video: viewModel.video, store: watchLaterStore)
                 }
                 metadata
                 organization

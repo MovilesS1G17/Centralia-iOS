@@ -3,10 +3,12 @@ import SwiftUI
 struct LibraryView: View {
     @Environment(\.offlineLibraryStatus) private var offlineStatus
     @Environment(\.recentlyViewed) private var recentlyViewed
+    @Environment(\.watchLaterStore) private var watchLaterStore
     private enum Route: Hashable {
         case creators
         case rediscover
         case insights
+        case watchLater
         case video(VideoDetailRoute)
         case folder(LibraryFolder)
         case trends
@@ -126,6 +128,21 @@ struct LibraryView: View {
                             }
                             .buttonStyle(CentraliaPressStyle())
                             .accessibilityIdentifier("discover_insights")
+
+                            if watchLaterStore != nil {
+                                Button {
+                                    path.append(.watchLater)
+                                } label: {
+                                    Label("Watch later", systemImage: "bookmark")
+                                        .font(.subheadline.weight(.semibold))
+                                        .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                                        .frame(minHeight: 44)
+                                        .background(Color.centraliaSurface, in: Capsule())
+                                        .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                                }
+                                .buttonStyle(CentraliaPressStyle())
+                                .accessibilityIdentifier("discover_watch_later")
+                            }
                         }
                     }
                     .scrollIndicators(.hidden)
@@ -375,6 +392,14 @@ struct LibraryView: View {
 
         case .trends:
             TrendsView(repository: trends)
+
+        case .watchLater:
+            if let watchLaterStore {
+                WatchLaterView(
+                    viewModel: WatchLaterViewModel(videoRepository: videoRepository, store: watchLaterStore),
+                    openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
+                )
+            }
 
         case .insights:
             InsightsView(viewModel: InsightsViewModel(videoRepository: videoRepository, store: insightsStore))
