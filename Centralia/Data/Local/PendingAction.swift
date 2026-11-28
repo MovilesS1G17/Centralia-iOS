@@ -109,8 +109,6 @@ nonisolated struct PendingAction: Codable, Equatable, Sendable {
 
     /// ISO-8601 with milliseconds, the format the backend reads in `X-Queued-At`.
     static func timestamp(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
+        APIDateFormatters.timestamp(date)
     }
 }
