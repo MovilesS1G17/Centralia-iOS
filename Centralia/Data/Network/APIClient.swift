@@ -131,11 +131,7 @@ struct APIClient {
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let value = try container.decode(String.self)
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: value) { return date }
-            formatter.formatOptions = [.withInternetDateTime]
-            if let date = formatter.date(from: value) { return date }
+            if let date = APIDateFormatters.parse(value) { return date }
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid ISO-8601 date")
         }
         do {
@@ -162,4 +158,32 @@ struct APIClient {
             query: query, headers: headers, timeout: timeout
         ))
     }
+}
+
+nonisolated enum APIDateFormatters {
+    private static let lock = NSLock()
+
+    static func parse(_ value: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return fractional.date(from: value) ?? plain.date(from: value)
+    }
+
+    static func timestamp(_ date: Date) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return fractional.string(from: date)
+    }
+
+    nonisolated(unsafe) private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    nonisolated(unsafe) private static let plain: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 }

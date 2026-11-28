@@ -62,6 +62,31 @@ final class MicroOptimizationPerformanceTests: XCTestCase {
         XCTAssertEqual(model.filteredVideos, [edited])
     }
 
+    func testDateParsingBefore() {
+        measureDateParsing { value in
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: value) { return date }
+            formatter.formatOptions = [.withInternetDateTime]
+            return formatter.date(from: value)
+        }
+    }
+
+    func testDateParsingWithReusedFormatters() {
+        measureDateParsing(APIDateFormatters.parse)
+    }
+
+    private func measureDateParsing(_ parse: (String) -> Date?) {
+        let timestamps = (0..<1_000).map { index in
+            index.isMultiple(of: 2) ? "2026-11-26T15:00:00.250Z" : "2026-11-26T15:00:00Z"
+        }
+        var parsed = [Date]()
+        measure {
+            parsed = timestamps.compactMap(parse)
+        }
+        XCTAssertEqual(parsed.count, timestamps.count)
+    }
+
     /// The same 1,000 shorts and query prefixes run against both implementations.
     private func library() -> (videos: [VideoItem], folders: [UUID: String]) {
         let words = ["pasta", "workout", "beach", "design", "swiftui", "morning", "routine", "crème",
