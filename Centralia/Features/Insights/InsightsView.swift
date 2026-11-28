@@ -13,10 +13,13 @@ final class InsightsViewModel {
 
     @ObservationIgnored private let videoRepository: any VideoItemRepository
     @ObservationIgnored private let store: any InsightsSnapshotStoring
+    @ObservationIgnored private let analytics: any AnalyticsTracking
+    @ObservationIgnored private var hasTrackedView = false
 
-    init(videoRepository: any VideoItemRepository, store: any InsightsSnapshotStoring) {
+    init(videoRepository: any VideoItemRepository, store: any InsightsSnapshotStoring, analytics: any AnalyticsTracking = NoOpAnalyticsTracking()) {
         self.videoRepository = videoRepository
         self.store = store
+        self.analytics = analytics
     }
 
     func load() async {
@@ -25,6 +28,7 @@ final class InsightsViewModel {
         if let previous {
             snapshot = previous
             isFromLastVisit = true
+            trackView(of: previous)
         }
         do {
             let facts = try await videoRepository.videos().map(VideoFacts.init)
@@ -37,12 +41,19 @@ final class InsightsViewModel {
             sinceLastVisit = Insights.sinceLastVisit(previous, current)
             isFromLastVisit = false
             isUpdating = false
+            trackView(of: current)
             await store.save(current)
         } catch {
             guard !Task.isCancelled else { return }
             isUpdating = false
             errorMessage = FeatureError.message(for: error)
         }
+    }
+
+    private func trackView(of snapshot: InsightsSnapshot) {
+        guard !hasTrackedView else { return }
+        hasTrackedView = true
+        analytics.track(.insightsViewed(weeks: snapshot.weeks.count))
     }
 }
 

@@ -68,6 +68,16 @@ struct APIInfrastructureTests {
         )
     }
 
+    @Test func sprint4AnalyticsUsesTheTokenFromTheOriginatingSession() async throws {
+        StubURLProtocol.handler = { request in
+            #expect(request.url?.path == "/v1/analytics/events")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer originating-token")
+            return (202, Data(#"{"accepted":1,"rejected":0}"#.utf8))
+        }
+        let repository = APIAnalyticsRepository(client: client(token: "current-token"), sessionToken: "originating-token")
+        try await repository.record([.insightsViewed(weeks: 4)])
+    }
+
     @Test func migratesAVerifiedSessionAndRestoresItOfflineUntilServerRejection() async throws {
         let service = "centralia-test-\(UUID().uuidString)"
         let store = KeychainAuthenticationTokenStore(service: service)

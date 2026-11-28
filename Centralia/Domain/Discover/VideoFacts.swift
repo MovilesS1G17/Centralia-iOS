@@ -33,3 +33,49 @@ nonisolated struct VideoFacts: Equatable, Hashable, Sendable {
         )
     }
 }
+
+/// The Sprint 4 feature events (BQ11-15), sent through `AnalyticsTracking`.
+extension ClientAnalyticsEvent {
+    static func rediscoverViewed(shown: Int) -> ClientAnalyticsEvent {
+        sprint4("rediscover_viewed", ["shown": .integer(shown)])
+    }
+
+    static func rediscoverOpened(videoID: UUID, daysSinceSave: Int) -> ClientAnalyticsEvent {
+        sprint4("rediscover_opened", [
+            "video_id": .text(videoID.uuidString.lowercased()),
+            "days_since_save": .integer(daysSinceSave)
+        ])
+    }
+
+    static func watchLaterAdded(videoID: UUID) -> ClientAnalyticsEvent {
+        sprint4("watch_later_added", ["video_id": .text(videoID.uuidString.lowercased())])
+    }
+
+    static func watchLaterOpened(videoID: UUID, hoursInQueue: Double) -> ClientAnalyticsEvent {
+        sprint4("watch_later_opened", [
+            "video_id": .text(videoID.uuidString.lowercased()),
+            "hours_in_queue": .decimal(hoursInQueue)
+        ])
+    }
+
+    static func trendsLoaded(source: TrendsSource, durationMs: Double, stale: Bool, windowDays: Int) -> ClientAnalyticsEvent {
+        sprint4("trends_loaded", [
+            "source": .text(source.rawValue),
+            "duration_ms": .decimal(durationMs),
+            "stale": .boolean(stale),
+            "window_days": .integer(windowDays)
+        ])
+    }
+
+    static func creatorsViewed(creators: Int) -> ClientAnalyticsEvent {
+        sprint4("creators_viewed", ["creators": .integer(creators)])
+    }
+
+    static func insightsViewed(weeks: Int) -> ClientAnalyticsEvent {
+        sprint4("insights_viewed", ["weeks": .integer(weeks)])
+    }
+
+    private static func sprint4(_ name: String, _ properties: [String: AnalyticsValue]) -> ClientAnalyticsEvent {
+        ClientAnalyticsEvent(name: name, occurredAt: Date(), properties: properties)
+    }
+}

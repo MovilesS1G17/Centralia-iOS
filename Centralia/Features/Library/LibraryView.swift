@@ -3,15 +3,10 @@ import SwiftUI
 struct LibraryView: View {
     @Environment(\.offlineLibraryStatus) private var offlineStatus
     @Environment(\.recentlyViewed) private var recentlyViewed
-    @Environment(\.watchLaterStore) private var watchLaterStore
     private enum Route: Hashable {
-        case creators
-        case rediscover
-        case insights
-        case watchLater
+        case discover(DiscoverDestination)
         case video(VideoDetailRoute)
         case folder(LibraryFolder)
-        case trends
     }
 
     @State private var viewModel: LibraryViewModel
@@ -19,7 +14,6 @@ struct LibraryView: View {
     @State private var path: [Route] = []
     @State private var pendingDeletion: VideoItem?
     @State private var movingVideo: VideoItem?
-    @State private var creatorsCache = CreatorsCache()
     @State private var recentEntries: [RecentlyViewedEntry] = []
 
     private let presentSave: () -> Void
@@ -28,9 +22,7 @@ struct LibraryView: View {
     private let folderRepository: any FolderRepository
     private let analytics: any AnalyticsTracking
     private let playbackRepository: (any VideoPlaybackRepository)?
-    private let trends: any TrendsLoading
-    private let rediscoverDismissals: any RediscoverDismissing
-    private let insightsStore: any InsightsSnapshotStoring
+    private let sprint4: Sprint4Services
 
     init(
         videoRepository: any VideoItemRepository,
@@ -39,9 +31,7 @@ struct LibraryView: View {
         userDisplayName: String? = nil,
         playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
-        trends: any TrendsLoading,
-        rediscoverDismissals: any RediscoverDismissing,
-        insightsStore: any InsightsSnapshotStoring,
+        sprint4: Sprint4Services,
         presentSave: @escaping () -> Void
     ) {
         _viewModel = State(
@@ -53,9 +43,7 @@ struct LibraryView: View {
         )
         self.analytics = analytics
         self.playbackRepository = playbackRepository
-        self.trends = trends
-        self.rediscoverDismissals = rediscoverDismissals
-        self.insightsStore = insightsStore
+        self.sprint4 = sprint4
         _selectedTab = selectedTab
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
@@ -75,77 +63,7 @@ struct LibraryView: View {
                         selectedTab = .search
                     }
 
-                    ScrollView(.horizontal) {
-                        HStack(spacing: CentraliaTheme.Spacing.small) {
-                            Button {
-                                path.append(.trends)
-                            } label: {
-                                Label("Trends", systemImage: "flame")
-                                    .font(.subheadline.weight(.semibold))
-                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                                    .frame(minHeight: 44)
-                                    .background(Color.centraliaSurface, in: Capsule())
-                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
-                            }
-                            .buttonStyle(CentraliaPressStyle())
-                            .accessibilityIdentifier("discover_trends")
-
-                            Button {
-                                path.append(.creators)
-                            } label: {
-                                Label("Creators", systemImage: "person.2")
-                                    .font(.subheadline.weight(.semibold))
-                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                                    .frame(minHeight: 44)
-                                    .background(Color.centraliaSurface, in: Capsule())
-                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
-                            }
-                            .buttonStyle(CentraliaPressStyle())
-                            .accessibilityIdentifier("discover_creators")
-
-                            Button {
-                                path.append(.rediscover)
-                            } label: {
-                                Label("Rediscover", systemImage: "clock.arrow.circlepath")
-                                    .font(.subheadline.weight(.semibold))
-                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                                    .frame(minHeight: 44)
-                                    .background(Color.centraliaSurface, in: Capsule())
-                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
-                            }
-                            .buttonStyle(CentraliaPressStyle())
-                            .accessibilityIdentifier("discover_rediscover")
-
-                            Button {
-                                path.append(.insights)
-                            } label: {
-                                Label("Insights", systemImage: "chart.bar")
-                                    .font(.subheadline.weight(.semibold))
-                                    .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                                    .frame(minHeight: 44)
-                                    .background(Color.centraliaSurface, in: Capsule())
-                                    .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
-                            }
-                            .buttonStyle(CentraliaPressStyle())
-                            .accessibilityIdentifier("discover_insights")
-
-                            if watchLaterStore != nil {
-                                Button {
-                                    path.append(.watchLater)
-                                } label: {
-                                    Label("Watch later", systemImage: "bookmark")
-                                        .font(.subheadline.weight(.semibold))
-                                        .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                                        .frame(minHeight: 44)
-                                        .background(Color.centraliaSurface, in: Capsule())
-                                        .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
-                                }
-                                .buttonStyle(CentraliaPressStyle())
-                                .accessibilityIdentifier("discover_watch_later")
-                            }
-                        }
-                    }
-                    .scrollIndicators(.hidden)
+                    DiscoverShortcutsRow { path.append(.discover($0)) }
 
                     sourceFilters
 
@@ -374,35 +292,47 @@ struct LibraryView: View {
     @ViewBuilder
     private func destination(for route: Route) -> some View {
         switch route {
-        case .creators:
+        case .discover(.creators):
             CreatorsView(
-                viewModel: CreatorsViewModel(videoRepository: videoRepository, cache: creatorsCache),
+                viewModel: CreatorsViewModel(
+                    videoRepository: videoRepository,
+                    cache: sprint4.creatorsCache,
+                    analytics: sprint4.analytics
+                ),
                 openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
             )
 
-        case .rediscover:
+        case .discover(.rediscover):
             RediscoverView(
                 viewModel: RediscoverViewModel(
-                    videoRepository: videoRepository, recentlyViewed: recentlyViewed,
-                    dismissals: rediscoverDismissals
+                    videoRepository: videoRepository,
+                    recentlyViewed: recentlyViewed,
+                    dismissals: sprint4.dismissals,
+                    analytics: sprint4.analytics
                 ),
                 isOnline: offlineStatus?.isOnline ?? true,
                 openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
             )
 
-        case .trends:
-            TrendsView(repository: trends)
+        case .discover(.trends):
+            TrendsView(repository: sprint4.trends, analytics: sprint4.analytics)
 
-        case .watchLater:
-            if let watchLaterStore {
-                WatchLaterView(
-                    viewModel: WatchLaterViewModel(videoRepository: videoRepository, store: watchLaterStore),
-                    openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
-                )
-            }
+        case .discover(.watchLater):
+            WatchLaterView(
+                viewModel: WatchLaterViewModel(
+                    videoRepository: videoRepository,
+                    store: sprint4.watchLater,
+                    analytics: sprint4.analytics
+                ),
+                openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
+            )
 
-        case .insights:
-            InsightsView(viewModel: InsightsViewModel(videoRepository: videoRepository, store: insightsStore))
+        case .discover(.insights):
+            InsightsView(viewModel: InsightsViewModel(
+                videoRepository: videoRepository,
+                store: sprint4.insights,
+                analytics: sprint4.analytics
+            ))
 
         case let .video(route):
             VideoDetailView(

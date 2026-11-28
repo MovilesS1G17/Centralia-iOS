@@ -15,10 +15,13 @@ final class CreatorsViewModel {
     @ObservationIgnored private var videosByID: [UUID: VideoItem] = [:]
     @ObservationIgnored private let videoRepository: any VideoItemRepository
     @ObservationIgnored private let cache: CreatorsCache
+    @ObservationIgnored private let analytics: any AnalyticsTracking
+    @ObservationIgnored private var hasTrackedView = false
 
-    init(videoRepository: any VideoItemRepository, cache: CreatorsCache) {
+    init(videoRepository: any VideoItemRepository, cache: CreatorsCache, analytics: any AnalyticsTracking = NoOpAnalyticsTracking()) {
         self.videoRepository = videoRepository
         self.cache = cache
+        self.analytics = analytics
     }
 
     var visible: [CreatorSummary] {
@@ -48,6 +51,10 @@ final class CreatorsViewModel {
             videosByID = Dictionary(videos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             creators = grouped
             state = .loaded
+            if !hasTrackedView {
+                hasTrackedView = true
+                analytics.track(.creatorsViewed(creators: grouped.count))
+            }
         } catch {
             guard !Task.isCancelled else { return }
             state = .failed(FeatureError.message(for: error))

@@ -25,6 +25,7 @@ final class BatchingAnalyticsTracker: AnalyticsTracking, @unchecked Sendable {
     nonisolated(unsafe) private var scheduledFlush: Task<Void, Never>?
     nonisolated(unsafe) private var isSending = false
     nonisolated(unsafe) private var retryAttempt = 0
+    nonisolated(unsafe) private var isStopped = false
 
     nonisolated init(
         repository: any AnalyticsRepository,
@@ -44,6 +45,10 @@ final class BatchingAnalyticsTracker: AnalyticsTracking, @unchecked Sendable {
 
     nonisolated func track(_ event: ClientAnalyticsEvent) {
         lock.lock()
+        guard !isStopped else {
+            lock.unlock()
+            return
+        }
         buffer.append(event)
         if buffer.count > maxBuffered {
             buffer.removeFirst(buffer.count - maxBuffered)
@@ -79,10 +84,19 @@ final class BatchingAnalyticsTracker: AnalyticsTracking, @unchecked Sendable {
                 try await repository.record(batch)
                 resetRetries()
             } catch {
-                restore(batch)
-                scheduleRetry()
+                restoreAndScheduleRetry(batch)
                 return
             }
+        }
+    }
+
+    /// A signed-out session no longer accepts events or retries queued batches.
+    nonisolated func stop() {
+        lock.withLock {
+            isStopped = true
+            scheduledFlush?.cancel()
+            scheduledFlush = nil
+            buffer.removeAll()
         }
     }
 
@@ -104,7 +118,7 @@ final class BatchingAnalyticsTracker: AnalyticsTracking, @unchecked Sendable {
     private nonisolated func beginSending() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard !isSending else { return false }
+        guard !isStopped, !isSending else { return false }
         isSending = true
         scheduledFlush = nil
         return true
@@ -133,8 +147,14 @@ final class BatchingAnalyticsTracker: AnalyticsTracking, @unchecked Sendable {
     }
 
     /// Called after a failed send, while `isSending` is still set.
-    private nonisolated func scheduleRetry() {
+    private nonisolated func restoreAndScheduleRetry(_ batch: [ClientAnalyticsEvent]) {
         lock.lock()
+        defer { lock.unlock() }
+        guard !isStopped else { return }
+        buffer.insert(contentsOf: batch, at: 0)
+        if buffer.count > maxBuffered {
+            buffer.removeFirst(buffer.count - maxBuffered)
+        }
         let delay = Self.retryDelay(forAttempt: retryAttempt, base: retryBaseDelay, maximum: maxRetryDelay)
         retryAttempt += 1
         scheduledFlush?.cancel()
@@ -143,15 +163,5 @@ final class BatchingAnalyticsTracker: AnalyticsTracking, @unchecked Sendable {
             guard !Task.isCancelled else { return }
             await self?.flush()
         }
-        lock.unlock()
-    }
-
-    private nonisolated func restore(_ batch: [ClientAnalyticsEvent]) {
-        lock.lock()
-        buffer.insert(contentsOf: batch, at: 0)
-        if buffer.count > maxBuffered {
-            buffer.removeFirst(buffer.count - maxBuffered)
-        }
-        lock.unlock()
     }
 }

@@ -11,7 +11,7 @@ struct VideoDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.recentlyViewed) private var recentlyViewed
-    @Environment(\.watchLaterStore) private var watchLaterStore
+    @Environment(\.sprint4) private var sprint4
     @State private var viewModel: VideoDetailViewModel
     @State private var startsPlaying: Bool
     @State private var recordedVisit = false
@@ -75,8 +75,8 @@ struct VideoDetailView: View {
                     .padding(.vertical, 8)
                     .background(Color.centraliaSoftSurface, in: RoundedRectangle(cornerRadius: 8))
                 }
-                if let watchLaterStore {
-                    WatchLaterToggle(video: viewModel.video, store: watchLaterStore)
+                if let sprint4 {
+                    WatchLaterToggle(video: viewModel.video, store: sprint4.watchLater, analytics: sprint4.analytics)
                 }
                 metadata
                 organization
