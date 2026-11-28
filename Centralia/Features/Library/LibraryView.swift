@@ -6,6 +6,7 @@ struct LibraryView: View {
     private enum Route: Hashable {
         case video(VideoDetailRoute)
         case folder(LibraryFolder)
+        case trends
     }
 
     @State private var viewModel: LibraryViewModel
@@ -21,6 +22,7 @@ struct LibraryView: View {
     private let folderRepository: any FolderRepository
     private let analytics: any AnalyticsTracking
     private let playbackRepository: (any VideoPlaybackRepository)?
+    private let trends: any TrendsLoading
 
     init(
         videoRepository: any VideoItemRepository,
@@ -29,6 +31,7 @@ struct LibraryView: View {
         userDisplayName: String? = nil,
         playbackRepository: (any VideoPlaybackRepository)? = nil,
         analytics: any AnalyticsTracking = NoOpAnalyticsTracking(),
+        trends: any TrendsLoading,
         presentSave: @escaping () -> Void
     ) {
         _viewModel = State(
@@ -40,6 +43,7 @@ struct LibraryView: View {
         )
         self.analytics = analytics
         self.playbackRepository = playbackRepository
+        self.trends = trends
         _selectedTab = selectedTab
         self.videoRepository = videoRepository
         self.folderRepository = folderRepository
@@ -58,6 +62,19 @@ struct LibraryView: View {
                     LibrarySearchEntry {
                         selectedTab = .search
                     }
+
+                    Button {
+                        path.append(.trends)
+                    } label: {
+                        Label("Trends", systemImage: "flame")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                            .frame(minHeight: 44)
+                            .background(Color.centraliaSurface, in: Capsule())
+                            .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                    }
+                    .buttonStyle(CentraliaPressStyle())
+                    .accessibilityIdentifier("discover_trends")
 
                     sourceFilters
 
@@ -286,6 +303,9 @@ struct LibraryView: View {
     @ViewBuilder
     private func destination(for route: Route) -> some View {
         switch route {
+        case .trends:
+            TrendsView(repository: trends)
+
         case let .video(route):
             VideoDetailView(
                 video: route.video,
