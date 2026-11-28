@@ -11,6 +11,7 @@ struct AuthenticatedAppView: View {
     let folderRepository: any FolderRepository
     var playbackRepository: (any VideoPlaybackRepository)? = nil
     var offlineStatus = OfflineStatus()
+    let trends: any TrendsLoading
     let searchHistoryRepository: any SearchHistoryRepository
     let savedSearchStore: SavedSearchStore
     let folderSuggestionCache: FolderSuggestionCache
@@ -50,6 +51,7 @@ struct AuthenticatedAppView: View {
                     selectedTab: $selectedTab,
                     userDisplayName: user.displayName,
                     playbackRepository: playbackRepository,
+                    trends: trends,
                     presentSave: { presentsSave = true }
                 )
                 .id(libraryRevision)

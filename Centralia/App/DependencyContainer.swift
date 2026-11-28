@@ -8,6 +8,8 @@ final class DependencyContainer {
     let searchHistoryRepository: any SearchHistoryRepository
     let savedSearchStore: SavedSearchStore
     let recentlyViewed: RecentlyViewedHistory
+    let rememberedEmail: any RememberedEmailStoring
+    let trends: any TrendsLoading
     let folderSuggestionCache: FolderSuggestionCache
     let userRepository: any UserRepository
     let libraryExportService: any LibraryExportService
@@ -27,6 +29,8 @@ final class DependencyContainer {
         searchHistoryRepository: any SearchHistoryRepository,
         savedSearchStore: SavedSearchStore = SavedSearchStore(),
         recentlyViewed: RecentlyViewedHistory,
+        rememberedEmail: any RememberedEmailStoring = InMemoryRememberedEmailStore(),
+        trends: any TrendsLoading,
         folderSuggestionCache: FolderSuggestionCache = FolderSuggestionCache(),
         userRepository: any UserRepository,
         libraryExportService: any LibraryExportService,
@@ -42,6 +46,8 @@ final class DependencyContainer {
         self.searchHistoryRepository = searchHistoryRepository
         self.savedSearchStore = savedSearchStore
         self.recentlyViewed = recentlyViewed
+        self.rememberedEmail = rememberedEmail
+        self.trends = trends
         self.folderSuggestionCache = folderSuggestionCache
         self.userRepository = userRepository
         self.libraryExportService = libraryExportService
@@ -62,8 +68,16 @@ final class DependencyContainer {
         let userRepository = MockUserRepository(store: store)
         let session = AppSession()
         let recentlyViewed = RecentlyViewedHistory(store: InMemoryRecentlyViewedStore())
+        let trends = CachedTrendsRepository(
+            fetch: { days in
+                if offline { throw TrendsUnavailableError() }
+                return APITrendsClient.sample(windowDays: days)
+            },
+            disk: InMemoryTrendsDiskStore()
+        )
         let clearSessionData = { [weak session] in
             recentlyViewed.clear()
+            Task { await trends.clear() }
             if let accountID = session?.authenticatedUserID {
                 Task { await folderSuggestionCache.clear(for: accountID) }
             }
@@ -94,6 +108,7 @@ final class DependencyContainer {
             searchHistoryRepository: MockSearchHistoryRepository(store: store),
             savedSearchStore: savedSearchStore,
             recentlyViewed: recentlyViewed,
+            trends: trends,
             folderSuggestionCache: folderSuggestionCache,
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(
@@ -118,6 +133,11 @@ final class DependencyContainer {
         let connectivity = ConnectivityMonitor()
         let session = AppSession(isRestoringSession: true)
         let recentlyViewed = RecentlyViewedHistory(store: CoreDataRecentlyViewedStore())
+        let trendsClient = APITrendsClient(client: api)
+        let trends = CachedTrendsRepository(
+            fetch: { days in try await trendsClient.trends(windowDays: days) },
+            disk: FileTrendsDiskStore()
+        )
         let folderSuggestionCache = FolderSuggestionCache()
         let userRepository = OfflineUserRepository(
             remote: APIUserRepository(client: api),
@@ -138,6 +158,7 @@ final class DependencyContainer {
             replayVideo: { try await videosAPI.replay($0) },
             onSignOut: { [weak session] in
                 recentlyViewed.clear()
+                Task { await trends.clear() }
                 userRepository.clear()
                 searchHistoryRepository.clear()
                 CoverImageLoader.shared.clear()
@@ -160,6 +181,8 @@ final class DependencyContainer {
             folderRepository: libraryRepository,
             searchHistoryRepository: searchHistoryRepository,
             recentlyViewed: recentlyViewed,
+            rememberedEmail: KeychainRememberedEmailStore(),
+            trends: trends,
             folderSuggestionCache: folderSuggestionCache,
             userRepository: userRepository,
             libraryExportService: JSONLibraryExportService(

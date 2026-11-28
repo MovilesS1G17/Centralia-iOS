@@ -38,10 +38,6 @@ final class CoverImageLoader {
         memory.object(forKey: url as NSURL)
     }
 
-    nonisolated func cachedResponseData(for url: URL) -> Data? {
-        responseCache.cachedResponse(for: URLRequest(url: url))?.data
-    }
-
     func image(for url: URL) async -> UIImage? {
         if let cached = cachedImage(for: url) { return cached }
         guard let response = try? await session.data(from: url) else { return nil }
@@ -49,6 +45,42 @@ final class CoverImageLoader {
         guard let image = await Self.decodeInBackground(data) else { return nil }
         memory.setObject(image, forKey: url as NSURL)
         return image
+    }
+
+    nonisolated func cachedResponseData(for url: URL) -> Data? {
+        responseCache.cachedResponse(for: URLRequest(url: url))?.data
+    }
+
+    /// Multithreading (Sprint 3, Gustavo): structured concurrency with a task group.
+    ///
+    /// When the Library finishes loading, the covers of the first cards are
+    /// downloaded and decoded before the user scrolls to them. Each cover is a
+    /// child task of one `withTaskGroup`, so they run in parallel, at most
+    /// `maxConcurrent` at a time (a new one starts as soon as one finishes).
+    /// The group returns how many covers are ready. Cancelling the caller
+    /// (leaving the screen) cancels every child.
+    @discardableResult
+    func prefetch(_ urls: [URL], maxConcurrent: Int = 4) async -> Int {
+        let pending = urls.filter { cachedImage(for: $0) == nil }
+        guard !pending.isEmpty else { return urls.count }
+
+        let loaded = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
+            var iterator = pending.makeIterator()
+            for _ in 0..<min(maxConcurrent, pending.count) {
+                guard let url = iterator.next() else { break }
+                group.addTask { await self.image(for: url) != nil }
+            }
+            var ready = 0
+            for await succeeded in group {
+                if succeeded { ready += 1 }
+                if Task.isCancelled { group.cancelAll(); break }
+                if let url = iterator.next() {
+                    group.addTask { await self.image(for: url) != nil }
+                }
+            }
+            return ready
+        }
+        return loaded + (urls.count - pending.count)
     }
 
     func clear() {

@@ -27,6 +27,7 @@ struct ContentView: View {
                 case .unauthenticated(.logIn):
                     LogInView(
                         repository: container.authenticationRepository,
+                        rememberedEmail: container.rememberedEmail,
                         showSignUp: container.session.showSignUp,
                         showEmailVerification: container.session.showEmailVerification,
                         completeAuthentication: container.session.completeAuthentication
@@ -54,6 +55,7 @@ struct ContentView: View {
                         folderRepository: container.folderRepository,
                         playbackRepository: container.videoPlaybackRepository,
                         offlineStatus: container.offlineStatus,
+                        trends: container.trends,
                         searchHistoryRepository: container.searchHistoryRepository,
                         savedSearchStore: container.savedSearchStore,
                         folderSuggestionCache: container.folderSuggestionCache,
