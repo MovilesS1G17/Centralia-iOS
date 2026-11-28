@@ -4,6 +4,7 @@ struct LibraryView: View {
     @Environment(\.offlineLibraryStatus) private var offlineStatus
     @Environment(\.recentlyViewed) private var recentlyViewed
     private enum Route: Hashable {
+        case creators
         case video(VideoDetailRoute)
         case folder(LibraryFolder)
         case trends
@@ -14,6 +15,7 @@ struct LibraryView: View {
     @State private var path: [Route] = []
     @State private var pendingDeletion: VideoItem?
     @State private var movingVideo: VideoItem?
+    @State private var creatorsCache = CreatorsCache()
     @State private var recentEntries: [RecentlyViewedEntry] = []
 
     private let presentSave: () -> Void
@@ -63,18 +65,33 @@ struct LibraryView: View {
                         selectedTab = .search
                     }
 
-                    Button {
-                        path.append(.trends)
-                    } label: {
-                        Label("Trends", systemImage: "flame")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, CentraliaTheme.Spacing.medium)
-                            .frame(minHeight: 44)
-                            .background(Color.centraliaSurface, in: Capsule())
-                            .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                    HStack(spacing: CentraliaTheme.Spacing.small) {
+                        Button {
+                            path.append(.trends)
+                        } label: {
+                            Label("Trends", systemImage: "flame")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                                .frame(minHeight: 44)
+                                .background(Color.centraliaSurface, in: Capsule())
+                                .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                        }
+                        .buttonStyle(CentraliaPressStyle())
+                        .accessibilityIdentifier("discover_trends")
+
+                        Button {
+                            path.append(.creators)
+                        } label: {
+                            Label("Creators", systemImage: "person.2")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, CentraliaTheme.Spacing.medium)
+                                .frame(minHeight: 44)
+                                .background(Color.centraliaSurface, in: Capsule())
+                                .overlay(Capsule().stroke(Color.centraliaDivider, lineWidth: 1))
+                        }
+                        .buttonStyle(CentraliaPressStyle())
+                        .accessibilityIdentifier("discover_creators")
                     }
-                    .buttonStyle(CentraliaPressStyle())
-                    .accessibilityIdentifier("discover_trends")
 
                     sourceFilters
 
@@ -303,6 +320,12 @@ struct LibraryView: View {
     @ViewBuilder
     private func destination(for route: Route) -> some View {
         switch route {
+        case .creators:
+            CreatorsView(
+                viewModel: CreatorsViewModel(videoRepository: videoRepository, cache: creatorsCache),
+                openVideo: { path.append(.video(VideoDetailRoute(video: $0))) }
+            )
+
         case .trends:
             TrendsView(repository: trends)
 
