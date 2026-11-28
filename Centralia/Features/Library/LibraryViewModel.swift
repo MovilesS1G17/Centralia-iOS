@@ -56,7 +56,10 @@ final class LibraryViewModel {
 
     private(set) var state: LoadState = .idle
     private(set) var failureMessage: String?
-    private(set) var videos: [VideoItem] = []
+    private(set) var videos: [VideoItem] = [] {
+        didSet { folderVideoCounts = Self.countByFolder(videos) }
+    }
+    private(set) var folderVideoCounts: [UUID: Int] = [:]
     private(set) var folders: [LibraryFolder] = []
     private(set) var recentlyDeletedVideo: VideoItem?
     /// Shake to undo: the pop-up the backend sent for `recentlyDeletedVideo`.
@@ -116,6 +119,16 @@ final class LibraryViewModel {
     func retry() async {
         state = .idle
         await load()
+    }
+
+    static func countByFolder(_ videos: [VideoItem]) -> [UUID: Int] {
+        var counts: [UUID: Int] = [:]
+        for video in videos {
+            if let folderID = video.folderID {
+                counts[folderID, default: 0] += 1
+            }
+        }
+        return counts
     }
 
     func applyFolderSnapshot(_ updated: [LibraryFolder]) { folders = updated }
